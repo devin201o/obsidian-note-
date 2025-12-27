@@ -2,17 +2,16 @@ import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
 import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
 import { ChatbotView, VIEW_TYPE_CHATBOT } from "./views/views";
 
-// Remember to rename these classes and interfaces!
-
 export default class HelloWorldPlugin extends Plugin {
 	settings: MyPluginSettings;
 
 	async onload() {
+		await this.loadSettings(); // Add this line to load settings on startup
 
 		// Register the chatbot view type
 		this.registerView(
 			VIEW_TYPE_CHATBOT,
-			(leaf) => new ChatbotView(leaf)
+			(leaf) => new ChatbotView(leaf, this) // Pass plugin instance
 		);
 
 		// Add ribbon icon to toggle chatbot

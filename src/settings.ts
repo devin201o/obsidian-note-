@@ -1,12 +1,20 @@
 import {App, PluginSettingTab, Setting} from "obsidian";
 import MyPlugin from "./main";
 
+export interface ChatMessage {
+    content: string;
+    sender: "user" | "bot";
+    timestamp: string;
+}
+
 export interface MyPluginSettings {
-	mySetting: string;
+    mySetting: string;
+    chatHistory: ChatMessage[];
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+    mySetting: 'default',
+    chatHistory: []
 }
 
 export class SampleSettingTab extends PluginSettingTab {

@@ -1,32 +1,119 @@
 import { ItemView, WorkspaceLeaf } from "obsidian";
+import type MyPlugin from "../main";
+import type { ChatMessage } from "../settings";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 
 export class ChatbotView extends ItemView {
-    constructor(leaf: WorkspaceLeaf) {
+    private plugin: MyPlugin;
+    private chatLogEl: HTMLElement | null = null;
+    private inputEl: HTMLInputElement | null = null;
+
+    constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
         super(leaf);
+        this.plugin = plugin;
     }
+
     getViewType() {
         return VIEW_TYPE_CHATBOT;
     }
+
     getDisplayText() {
         return "Chatbot view";
     }
+
     async onOpen() {
         const container = this.containerEl.children[1];
         if (!container) return;
         container.empty();
 
-        // Add container class for scoped styling
         container.addClass("chatbot-container");
-
-        // Basic layout
         container.createEl("h4", { text: "Chatbot" });
-        container.createDiv({ cls: "chat-log" });
-        container.createEl("input", { 
+        
+        this.chatLogEl = container.createDiv({ cls: "chat-log" });
+        
+        // Render existing messages from storage
+        this.plugin.settings.chatHistory.forEach(msg => {
+            this.renderMessage(msg);
+        });
+        this.scrollToBottom();
+
+        const inputContainer = container.createDiv({ cls: "chat-input-container" });
+        
+        this.inputEl = inputContainer.createEl("input", { 
             type: "text", 
             placeholder: "Type a message...",
             cls: "chat-input"
         });
+
+        const sendButton = inputContainer.createEl("button", {
+            text: "Send",
+            cls: "chat-send-button"
+        });
+
+        this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                this.sendMessage();
+            }
+        });
+
+        sendButton.addEventListener("click", () => {
+            this.sendMessage();
+        });
+    }
+
+    private async sendMessage() {
+        if (!this.inputEl || !this.chatLogEl) return;
+        
+        const content = this.inputEl.value.trim();
+        if (!content) return;
+
+        const message: ChatMessage = {
+            content,
+            sender: "user",
+            timestamp: new Date().toISOString()
+        };
+
+        // Add to plugin storage
+        this.plugin.settings.chatHistory.push(message);
+        await this.plugin.saveSettings();
+
+        this.renderMessage(message);
+        this.inputEl.value = "";
+        this.inputEl.focus();
+        this.scrollToBottom();
+    }
+
+    private renderMessage(message: ChatMessage) {
+        if (!this.chatLogEl) return;
+
+        const messageEl = this.chatLogEl.createDiv({ 
+            cls: `chat-message chat-message-${message.sender}` 
+        });
+
+        messageEl.createDiv({ 
+            cls: "chat-message-content",
+            text: message.content 
+        });
+
+        const date = new Date(message.timestamp);
+        const timeStr = date.toLocaleTimeString([], { 
+            hour: "2-digit", 
+            minute: "2-digit" 
+        });
+        messageEl.createDiv({ 
+            cls: "chat-message-time",
+            text: timeStr 
+        });
+    }
+
+    private scrollToBottom() {
+        if (!this.chatLogEl) return;
+        this.chatLogEl.scrollTop = this.chatLogEl.scrollHeight;
+    }
+
+    async onClose() {
+        // Nothing to clean up - messages are in plugin.settings
     }
 }

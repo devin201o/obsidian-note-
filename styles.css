@@ -20,17 +20,22 @@ If your plugin does not need CSS, delete this file.
 }
 
 .chat-log {
-    height: 300px;
+    flex-grow: 1;
     overflow-y: auto;
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
     padding: 10px;
     margin-bottom: 10px;
-    flex-grow: 1;
+    min-height: 200px;
+}
+
+.chat-input-container {
+    display: flex;
+    gap: 8px;
 }
 
 .chat-input {
-    width: 100%;
+    flex-grow: 1;
     padding: 8px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
@@ -41,4 +46,48 @@ If your plugin does not need CSS, delete this file.
 .chat-input:focus {
     outline: none;
     border-color: var(--interactive-accent);
+}
+
+.chat-send-button {
+    padding: 8px 16px;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.chat-send-button:hover {
+    background-color: var(--interactive-accent-hover);
+}
+
+/* Chat Message Styles */
+.chat-message {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    max-width: 85%;
+}
+
+.chat-message-user {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    margin-left: auto;
+}
+
+.chat-message-bot {
+    background-color: var(--background-secondary);
+    color: var(--text-normal);
+    margin-right: auto;
+}
+
+.chat-message-content {
+    word-wrap: break-word;
+}
+
+.chat-message-time {
+    font-size: 0.75em;
+    opacity: 0.7;
+    margin-top: 4px;
+    text-align: right;
 }
