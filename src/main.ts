@@ -1,18 +1,23 @@
 import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
 import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import { ChatbotView, VIEW_TYPE_CHATBOT } from "./views/views";
 
 // Remember to rename these classes and interfaces!
 
-export default class MyPlugin extends Plugin {
+export default class HelloWorldPlugin extends Plugin {
 	settings: MyPluginSettings;
 
 	async onload() {
-		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		// Register the chatbot view type
+		this.registerView(
+			VIEW_TYPE_CHATBOT,
+			(leaf) => new ChatbotView(leaf)
+		);
+
+		// Add ribbon icon to toggle chatbot
+		this.addRibbonIcon('message-square', 'Toggle Chatbot', () => {
+			this.toggleView();
 		});
 
 		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
@@ -62,12 +67,33 @@ export default class MyPlugin extends Plugin {
 		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
 		// Using this function will automatically remove the event listener when this plugin is disabled.
 		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
+			// new Notice("Click");
 		});
 
 		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
 		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
 
+	}
+
+	async toggleView() {
+		const { workspace } = this.app;
+
+		const existingLeaves = workspace.getLeavesOfType(VIEW_TYPE_CHATBOT);
+
+		if (existingLeaves.length > 0) {
+			// Close all existing chatbot views
+			existingLeaves.forEach(leaf => leaf.detach());
+		} else {
+			// Open chatbot in the right sidebar
+			const rightLeaf = workspace.getRightLeaf(false);
+			if (rightLeaf) {
+				await rightLeaf.setViewState({
+					type: VIEW_TYPE_CHATBOT,
+					active: true,
+				});
+				workspace.revealLeaf(rightLeaf);
+			}
+		}
 	}
 
 	onunload() {
