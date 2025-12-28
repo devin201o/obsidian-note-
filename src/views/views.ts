@@ -1,6 +1,7 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice } from "obsidian";
 import type MyPlugin from "../main";
 import type { ChatMessage } from "../settings";
+import { sendChatMessage } from "../llm/openrouter";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 
@@ -69,19 +70,62 @@ export class ChatbotView extends ItemView {
         const content = this.inputEl.value.trim();
         if (!content) return;
 
-        const message: ChatMessage = {
+        // Check if API key is set
+        if (!this.plugin.settings.openRouterApiKey) {
+            new Notice("Please set your OpenRouter API key in **Settings → obsidian note+**");
+            return;
+        }
+
+        const userMessage: ChatMessage = {
             content,
             sender: "user",
             timestamp: new Date().toISOString()
         };
 
-        // Add to plugin storage
-        this.plugin.settings.chatHistory.push(message);
+        // Add user message to storage and render
+        this.plugin.settings.chatHistory.push(userMessage);
         await this.plugin.saveSettings();
-
-        this.renderMessage(message);
+        this.renderMessage(userMessage);
+        
         this.inputEl.value = "";
         this.inputEl.focus();
+        this.scrollToBottom();
+
+        // Build conversation history for LLM
+        const llmMessages: { role: "user" | "assistant" | "system"; content: string }[] = [
+            { role: "system", content: "You are a helpful assistant." }
+        ];
+        
+        // Include recent conversation history (last 10 messages for context)
+        const recentHistory = this.plugin.settings.chatHistory.slice(-10);
+        for (const msg of recentHistory) {
+            llmMessages.push({
+                role: msg.sender === "user" ? "user" : "assistant",
+                content: msg.content
+            });
+        }
+
+        // Send to LLM
+        const response = await sendChatMessage(
+            this.plugin.settings.openRouterApiKey,
+            llmMessages
+        );
+
+        if (response.error) {
+            new Notice(`Error: ${response.error}`);
+            return;
+        }
+
+        // Create and save bot response
+        const botMessage: ChatMessage = {
+            content: response.content,
+            sender: "bot",
+            timestamp: new Date().toISOString()
+        };
+
+        this.plugin.settings.chatHistory.push(botMessage);
+        await this.plugin.saveSettings();
+        this.renderMessage(botMessage);
         this.scrollToBottom();
     }
 

@@ -10,11 +10,13 @@ export interface ChatMessage {
 export interface MyPluginSettings {
     mySetting: string;
     chatHistory: ChatMessage[];
+    openRouterApiKey: string;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
     mySetting: 'default',
-    chatHistory: []
+    chatHistory: [],
+    openRouterApiKey: ''
 }
 
 export class SampleSettingTab extends PluginSettingTab {
@@ -40,5 +42,19 @@ export class SampleSettingTab extends PluginSettingTab {
 					this.plugin.settings.mySetting = value;
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('OpenRouter API Key')
+			.setDesc('Enter your OpenRouter API key. Get one at openrouter.ai')
+			.addText(text => {
+				text.setPlaceholder('sk-or-...')
+					.setValue(this.plugin.settings.openRouterApiKey)
+					.onChange(async (value) => {
+						this.plugin.settings.openRouterApiKey = value;
+						await this.plugin.saveSettings();
+					});
+				text.inputEl.type = 'password';
+				return text;
+			});
 	}
 }
