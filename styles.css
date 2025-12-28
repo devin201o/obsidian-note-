@@ -67,12 +67,15 @@ If your plugin does not need CSS, delete this file.
     padding: 8px 12px;
     border-radius: 8px;
     max-width: 85%;
+    width: fit-content;
+    display: inline-block;
 }
 
 .chat-message-user {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
     margin-left: auto;
+    display: block;
 }
 
 .chat-message-bot {
