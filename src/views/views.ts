@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Modal, App } from "obsidian";
 import type MyPlugin from "../main";
 import type { ChatMessage } from "../settings";
 import { sendChatMessage } from "../llm/openrouter";
@@ -29,7 +29,17 @@ export class ChatbotView extends ItemView {
         container.empty();
 
         container.addClass("chatbot-container");
-        container.createEl("h4", { text: "Chatbot" });
+        
+        // Header with title and reset button
+        const headerEl = container.createDiv({ cls: "chat-header" });
+        headerEl.createEl("h4", { text: "Chatbot" });
+        
+        const resetButton = headerEl.createEl("button", {
+            cls: "chat-reset-button",
+            attr: { "aria-label": "Clear conversation" }
+        });
+        resetButton.innerHTML = "⟳";
+        resetButton.addEventListener("click", () => this.resetConversation());
         
         this.chatLogEl = container.createDiv({ cls: "chat-log" });
         
@@ -157,7 +167,78 @@ export class ChatbotView extends ItemView {
         this.chatLogEl.scrollTop = this.chatLogEl.scrollHeight;
     }
 
+    private async resetConversation() {
+        // Show confirmation dialog
+        const confirmed = await this.showConfirmDialog(
+            "Clear conversation",
+            "Are you sure you want to clear all messages? This cannot be undone."
+        );
+        
+        if (!confirmed) return;
+        
+        // Clear chat history
+        this.plugin.settings.chatHistory = [];
+        await this.plugin.saveSettings();
+        
+        // Clear the chat log UI
+        if (this.chatLogEl) {
+            this.chatLogEl.empty();
+        }
+        
+        new Notice("Conversation cleared");
+    }
+
+    private showConfirmDialog(title: string, message: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const modal = new ConfirmModal(this.app, title, message, resolve);
+            modal.open();
+        });
+    }
+
     async onClose() {
         // Nothing to clean up - messages are in plugin.settings
+    }
+}
+
+class ConfirmModal extends Modal {
+    private title: string;
+    private message: string;
+    private resolve: (value: boolean) => void;
+
+    constructor(app: App, title: string, message: string, resolve: (value: boolean) => void) {
+        super(app);
+        this.title = title;
+        this.message = message;
+        this.resolve = resolve;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass("confirm-modal");
+
+        contentEl.createEl("h3", { text: this.title });
+        contentEl.createEl("p", { text: this.message });
+
+        const buttonContainer = contentEl.createDiv({ cls: "confirm-modal-buttons" });
+        
+        const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
+        cancelButton.addEventListener("click", () => {
+            this.resolve(false);
+            this.close();
+        });
+
+        const confirmButton = buttonContainer.createEl("button", { 
+            text: "Clear",
+            cls: "mod-warning"
+        });
+        confirmButton.addEventListener("click", () => {
+            this.resolve(true);
+            this.close();
+        });
+    }
+
+    onClose() {
+        this.contentEl.empty();
     }
 }

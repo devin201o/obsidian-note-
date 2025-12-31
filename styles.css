@@ -15,8 +15,32 @@ If your plugin does not need CSS, delete this file.
     padding: 10px;
 }
 
-.chatbot-container h4 {
-    margin: 0 0 10px 0;
+.chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.chat-header h4 {
+    margin: 0;
+}
+
+.chat-reset-button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    opacity: 0.6;
+    transition: opacity 0.2s, background-color 0.2s;
+}
+
+.chat-reset-button:hover {
+    opacity: 1;
+    background-color: var(--background-modifier-hover);
 }
 
 .chat-log {
@@ -93,4 +117,37 @@ If your plugin does not need CSS, delete this file.
     opacity: 0.7;
     margin-top: 4px;
     text-align: right;
+}
+
+/* Confirm Modal Styles */
+.confirm-modal {
+    padding: 10px;
+}
+
+.confirm-modal h3 {
+    margin-top: 0;
+    margin-bottom: 12px;
+}
+
+.confirm-modal p {
+    margin-bottom: 20px;
+    color: var(--text-muted);
+}
+
+.confirm-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.confirm-modal-buttons button {
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.confirm-modal-buttons button.mod-warning {
+    background-color: var(--background-modifier-error);
+    color: var(--text-on-accent);
+    border: none;
 }
