@@ -69,6 +69,7 @@ export default class HelloWorldPlugin extends Plugin {
 		// Initialize the RAG engine
 		this.ragEngine = new RAGEngine(this.embeddingManager);
 		this.ragEngine.setApiKey(this.settings.openRouterApiKey);
+		this.ragEngine.setModel(this.settings.openRouterModel);
 		
 		// Index the vault on startup
 		await this.indexVault();
@@ -415,6 +416,7 @@ export default class HelloWorldPlugin extends Plugin {
 		}
 		if (this.ragEngine) {
 			this.ragEngine.setApiKey(this.settings.openRouterApiKey);
+			this.ragEngine.setModel(this.settings.openRouterModel);
 		}
 		// Update privacy manager settings
 		if (this.privacyManager) {

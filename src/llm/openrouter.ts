@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const MODEL = "google/gemini-2.5-flash";
+const DEFAULT_MODEL = "google/gemini-2.5-flash";
 const EMBEDDING_MODEL = "openai/text-embedding-3-small";
 
 export interface LLMResponse {
@@ -16,11 +16,14 @@ export interface EmbeddingResponse {
 
 export async function sendChatMessage(
     apiKey: string,
-    messages: { role: "user" | "assistant" | "system"; content: string }[]
+    messages: { role: "user" | "assistant" | "system"; content: string }[],
+    model?: string
 ): Promise<LLMResponse> {
     if (!apiKey) {
         return { content: "", error: "API key not set" };
     }
+
+    const modelToUse = model?.trim() || DEFAULT_MODEL;
 
     try {
         const client = new OpenAI({
@@ -30,7 +33,7 @@ export async function sendChatMessage(
         });
 
         const completion = await client.chat.completions.create({
-            model: MODEL,
+            model: modelToUse,
             messages: messages,
         });
 

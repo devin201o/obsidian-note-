@@ -12,6 +12,7 @@ export interface MyPluginSettings {
     mySetting: string;
     chatHistory: ChatMessage[];
     openRouterApiKey: string;
+    openRouterModel: string;
     indexMarkdownOnly: boolean;
     enableRedaction: boolean;
     customRedactionPatterns: string;
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     mySetting: 'default',
     chatHistory: [],
     openRouterApiKey: '',
+    openRouterModel: 'google/gemini-2.5-flash',
     indexMarkdownOnly: true,
     enableRedaction: true,
     customRedactionPatterns: ''
@@ -263,6 +265,17 @@ export class SampleSettingTab extends PluginSettingTab {
 				text.inputEl.type = 'password';
 				return text;
 			});
+
+		new Setting(containerEl)
+			.setName('OpenRouter Chat Model')
+			.setDesc('The model ID to use for chat (e.g., google/gemini-2.5-flash, openai/gpt-4o, anthropic/claude-3.5-sonnet)')
+			.addText(text => text
+				.setPlaceholder('google/gemini-2.5-flash')
+				.setValue(this.plugin.settings.openRouterModel)
+				.onChange(async (value) => {
+					this.plugin.settings.openRouterModel = value;
+					await this.plugin.saveSettings();
+				}));
 	}
 
 	private updateIndexStats(): void {

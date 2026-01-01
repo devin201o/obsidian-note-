@@ -8,6 +8,7 @@ import { sendChatMessage } from "../llm/openrouter";
 export class RAGEngine {
     private embeddingManager: EmbeddingManager;
     private apiKey: string = "";
+    private model: string = "google/gemini-2.5-flash";
 
     constructor(embeddingManager: EmbeddingManager) {
         this.embeddingManager = embeddingManager;
@@ -18,6 +19,13 @@ export class RAGEngine {
      */
     setApiKey(apiKey: string): void {
         this.apiKey = apiKey;
+    }
+
+    /**
+     * Set the model to use for chat
+     */
+    setModel(model: string): void {
+        this.model = model;
     }
 
     /**
@@ -53,8 +61,8 @@ export class RAGEngine {
         // Add the current query
         messages.push({ role: "user", content: userQuery });
 
-        // Step 4: Send to LLM
-        const response = await sendChatMessage(this.apiKey, messages);
+        // Step 4: Send to LLM with configured model
+        const response = await sendChatMessage(this.apiKey, messages, this.model);
 
         if (response.error) {
             return `Error: ${response.error}`;
