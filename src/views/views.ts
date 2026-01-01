@@ -1,10 +1,17 @@
-import { ItemView, WorkspaceLeaf, Notice, Modal, App, MarkdownRenderer, Component, Menu, TFile, TFolder, setIcon } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Modal, App, MarkdownRenderer, Component, Menu, TFile, TFolder, setIcon, FuzzySuggestModal } from "obsidian";
+import type { FuzzyMatch } from "obsidian";
 import type MyPlugin from "../main";
 import type { ChatMessage } from "../settings";
 import type { RAGEngine } from "../chat/rag-engine";
 import type { SearchOptions } from "../indexer/vector-store";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
+
+// Cache for folders and tags to avoid rescanning vault on every menu open
+let cachedFolders: string[] | null = null;
+let cachedTags: string[] | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL_MS = 30000; // 30 seconds cache TTL
 
 /**
  * Context item for scoping RAG search
@@ -44,6 +51,31 @@ export class ChatbotView extends ItemView {
 
     async onOpen() {
         this.renderComponent.load();
+        
+        // Invalidate cache when metadata changes
+        this.registerEvent(
+            this.app.metadataCache.on("changed", () => {
+                cachedTags = null;
+            })
+        );
+        this.registerEvent(
+            this.app.vault.on("create", () => {
+                cachedFolders = null;
+                cachedTags = null;
+            })
+        );
+        this.registerEvent(
+            this.app.vault.on("delete", () => {
+                cachedFolders = null;
+                cachedTags = null;
+            })
+        );
+        this.registerEvent(
+            this.app.vault.on("rename", () => {
+                cachedFolders = null;
+                cachedTags = null;
+            })
+        );
         
         const container = this.containerEl.children[1];
         if (!container) return;
@@ -272,12 +304,12 @@ export class ChatbotView extends ItemView {
 
         menu.addItem((item) => {
             item.setTitle("📁 Add Folder...")
-                .onClick(() => this.showFolderPickerMenu(e));
+                .onClick(() => this.showFolderPickerModal());
         });
 
         menu.addItem((item) => {
             item.setTitle("🏷️ Add Tag...")
-                .onClick(() => this.showTagPickerMenu(e));
+                .onClick(() => this.showTagPickerModal());
         });
 
         if (this.selectedContexts.length > 0) {
@@ -306,55 +338,37 @@ export class ChatbotView extends ItemView {
         modal.open();
     }
 
-    private showFolderPickerMenu(e: MouseEvent) {
-        const menu = new Menu();
+    private showFolderPickerModal() {
         const folders = this.getAllFolders();
-
-        if (folders.length === 0) {
-            menu.addItem((item) => item.setTitle("No folders found").setDisabled(true));
-        } else {
-            for (const folder of folders.slice(0, 20)) { // Limit to 20 folders
-                menu.addItem((item) => {
-                    item.setTitle(folder)
-                        .onClick(() => {
-                            this.addContext({
-                                type: "folder",
-                                value: folder,
-                                displayName: folder
-                            });
-                        });
-                });
-            }
-        }
-
-        menu.showAtMouseEvent(e);
+        const modal = new FolderSuggester(this.app, folders, (folder) => {
+            this.addContext({
+                type: "folder",
+                value: folder,
+                displayName: folder
+            });
+        });
+        modal.open();
     }
 
-    private showTagPickerMenu(e: MouseEvent) {
-        const menu = new Menu();
+    private showTagPickerModal() {
         const tags = this.getAllTags();
-
-        if (tags.length === 0) {
-            menu.addItem((item) => item.setTitle("No tags found").setDisabled(true));
-        } else {
-            for (const tag of tags.slice(0, 20)) { // Limit to 20 tags
-                menu.addItem((item) => {
-                    item.setTitle(tag)
-                        .onClick(() => {
-                            this.addContext({
-                                type: "tag",
-                                value: tag,
-                                displayName: tag
-                            });
-                        });
-                });
-            }
-        }
-
-        menu.showAtMouseEvent(e);
+        const modal = new TagSuggester(this.app, tags, (tag) => {
+            this.addContext({
+                type: "tag",
+                value: tag,
+                displayName: tag
+            });
+        });
+        modal.open();
     }
 
     private getAllFolders(): string[] {
+        const now = Date.now();
+        // Return cached if valid
+        if (cachedFolders && (now - cacheTimestamp) < CACHE_TTL_MS) {
+            return cachedFolders;
+        }
+
         const folders: string[] = [];
         const rootFolder = this.app.vault.getRoot();
         
@@ -368,32 +382,73 @@ export class ChatbotView extends ItemView {
         };
         
         traverse(rootFolder);
-        return folders.sort();
+        cachedFolders = folders.sort();
+        cacheTimestamp = now;
+        return cachedFolders;
     }
 
     private getAllTags(): string[] {
+        const now = Date.now();
+        // Return cached if valid
+        if (cachedTags && (now - cacheTimestamp) < CACHE_TTL_MS) {
+            return cachedTags;
+        }
+
         const tagSet = new Set<string>();
         const files = this.app.vault.getMarkdownFiles();
         
         for (const file of files) {
             const cache = this.app.metadataCache.getFileCache(file);
+            
+            // Get inline tags from body
             if (cache?.tags) {
-                for (const tag of cache.tags) {
-                    tagSet.add(tag.tag);
+                for (const tagCache of cache.tags) {
+                    const tag = tagCache.tag;
+                    tagSet.add(tag);
+                    // Also add parent tags for hierarchy (e.g., #project/subtask adds #project)
+                    this.addParentTags(tag, tagSet);
                 }
             }
-            // Also check frontmatter tags
+            
+            // Get frontmatter tags
             if (cache?.frontmatter?.tags) {
                 const fmTags = Array.isArray(cache.frontmatter.tags) 
                     ? cache.frontmatter.tags 
                     : [cache.frontmatter.tags];
-                for (const tag of fmTags) {
-                    tagSet.add(`#${tag}`);
+                for (const rawTag of fmTags) {
+                    if (typeof rawTag === "string") {
+                        const tag = rawTag.startsWith("#") ? rawTag : `#${rawTag}`;
+                        tagSet.add(tag);
+                        this.addParentTags(tag, tagSet);
+                    }
+                }
+            }
+            
+            // Also check frontmatter 'tag' (singular) field
+            if (cache?.frontmatter?.tag) {
+                const rawTag = cache.frontmatter.tag;
+                if (typeof rawTag === "string") {
+                    const tag = rawTag.startsWith("#") ? rawTag : `#${rawTag}`;
+                    tagSet.add(tag);
+                    this.addParentTags(tag, tagSet);
                 }
             }
         }
         
-        return Array.from(tagSet).sort();
+        cachedTags = Array.from(tagSet).sort();
+        return cachedTags;
+    }
+
+    /**
+     * Add parent tags for nested tag hierarchy
+     * e.g., #project/frontend/react adds #project/frontend and #project
+     */
+    private addParentTags(tag: string, tagSet: Set<string>) {
+        const parts = tag.split("/");
+        for (let i = 1; i < parts.length; i++) {
+            const parentTag = parts.slice(0, i).join("/");
+            tagSet.add(parentTag);
+        }
     }
 
     private addContext(item: ContextItem) {
@@ -561,74 +616,106 @@ class ConfirmModal extends Modal {
 }
 
 /**
- * Modal for picking a file from the vault
+ * Fuzzy suggester for picking a file from the vault
  */
-class FilePickerModal extends Modal {
+class FilePickerModal extends FuzzySuggestModal<TFile> {
     private files: TFile[];
-    private onSelect: (file: TFile) => void;
-    private searchQuery: string = "";
-    private listEl: HTMLElement | null = null;
+    private onSelectCallback: (file: TFile) => void;
 
     constructor(app: App, files: TFile[], onSelect: (file: TFile) => void) {
         super(app);
         this.files = files;
-        this.onSelect = onSelect;
+        this.onSelectCallback = onSelect;
+        this.setPlaceholder("Search files...");
     }
 
-    onOpen() {
-        const { contentEl } = this;
-        contentEl.empty();
-        contentEl.addClass("file-picker-modal");
-
-        contentEl.createEl("h3", { text: "Select a file" });
-
-        // Search input
-        const searchInput = contentEl.createEl("input", {
-            type: "text",
-            placeholder: "Search files...",
-            cls: "file-picker-search"
-        });
-        searchInput.addEventListener("input", (e) => {
-            this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
-            this.renderList();
-        });
-        searchInput.focus();
-
-        this.listEl = contentEl.createDiv({ cls: "file-picker-list" });
-        this.renderList();
+    getItems(): TFile[] {
+        return this.files;
     }
 
-    private renderList() {
-        if (!this.listEl) return;
-        this.listEl.empty();
+    getItemText(file: TFile): string {
+        return file.path;
+    }
 
-        const filtered = this.searchQuery
-            ? this.files.filter(f => 
-                f.basename.toLowerCase().includes(this.searchQuery) ||
-                f.path.toLowerCase().includes(this.searchQuery)
-            )
-            : this.files;
+    onChooseItem(file: TFile, evt: MouseEvent | KeyboardEvent): void {
+        this.onSelectCallback(file);
+    }
 
-        const toShow = filtered.slice(0, 50); // Limit to 50 results
-
-        if (toShow.length === 0) {
-            this.listEl.createEl("p", { text: "No files found", cls: "file-picker-empty" });
-            return;
-        }
-
-        for (const file of toShow) {
-            const item = this.listEl.createDiv({ cls: "file-picker-item" });
-            item.createSpan({ text: file.basename, cls: "file-picker-name" });
-            item.createSpan({ text: file.parent?.path ?? "", cls: "file-picker-path" });
-            
-            item.addEventListener("click", () => {
-                this.onSelect(file);
-                this.close();
-            });
+    renderSuggestion(match: FuzzyMatch<TFile>, el: HTMLElement): void {
+        const file = match.item;
+        el.addClass("file-picker-item");
+        
+        const nameEl = el.createSpan({ cls: "file-picker-name" });
+        nameEl.setText(file.basename);
+        
+        if (file.parent && file.parent.path !== "/") {
+            const pathEl = el.createSpan({ cls: "file-picker-path" });
+            pathEl.setText(file.parent.path);
         }
     }
+}
 
-    onClose() {
-        this.contentEl.empty();
+/**
+ * Fuzzy suggester for picking a folder from the vault
+ */
+class FolderSuggester extends FuzzySuggestModal<string> {
+    private folders: string[];
+    private onSelectCallback: (folder: string) => void;
+
+    constructor(app: App, folders: string[], onSelect: (folder: string) => void) {
+        super(app);
+        this.folders = folders;
+        this.onSelectCallback = onSelect;
+        this.setPlaceholder("Search folders...");
+    }
+
+    getItems(): string[] {
+        return this.folders;
+    }
+
+    getItemText(folder: string): string {
+        return folder;
+    }
+
+    onChooseItem(folder: string, evt: MouseEvent | KeyboardEvent): void {
+        this.onSelectCallback(folder);
+    }
+
+    renderSuggestion(match: FuzzyMatch<string>, el: HTMLElement): void {
+        el.addClass("folder-picker-item");
+        el.createSpan({ text: "📁 ", cls: "folder-picker-icon" });
+        el.createSpan({ text: match.item, cls: "folder-picker-name" });
+    }
+}
+
+/**
+ * Fuzzy suggester for picking a tag from the vault
+ */
+class TagSuggester extends FuzzySuggestModal<string> {
+    private tags: string[];
+    private onSelectCallback: (tag: string) => void;
+
+    constructor(app: App, tags: string[], onSelect: (tag: string) => void) {
+        super(app);
+        this.tags = tags;
+        this.onSelectCallback = onSelect;
+        this.setPlaceholder("Search tags...");
+    }
+
+    getItems(): string[] {
+        return this.tags;
+    }
+
+    getItemText(tag: string): string {
+        return tag;
+    }
+
+    onChooseItem(tag: string, evt: MouseEvent | KeyboardEvent): void {
+        this.onSelectCallback(tag);
+    }
+
+    renderSuggestion(match: FuzzyMatch<string>, el: HTMLElement): void {
+        el.addClass("tag-picker-item");
+        el.createSpan({ text: match.item, cls: "tag-picker-name" });
     }
 }

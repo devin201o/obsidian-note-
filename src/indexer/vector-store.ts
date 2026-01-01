@@ -193,42 +193,71 @@ export class VectorStore {
             return true;
         }
 
-        // Check file filter
+        // Check file filter (exact match)
         if (hasFileFilter && options.files!.includes(filePath)) {
             return true;
         }
 
-        // Check folder filter
+        // Check folder filter (recursive - includes all subfolders)
         if (hasFolderFilter) {
             for (const folder of options.folders!) {
-                if (filePath.startsWith(folder + "/") || filePath.startsWith(folder)) {
+                // Normalize folder path: ensure it ends with / for proper prefix matching
+                const normalizedFolder = folder.endsWith("/") ? folder : folder + "/";
+                // Check if file is directly in the folder or in any subfolder
+                if (filePath.startsWith(normalizedFolder) || filePath === folder) {
                     return true;
                 }
             }
         }
 
-        // Check tag filter using MetadataCache
+        // Check tag filter using MetadataCache (with hierarchy support)
         if (hasTagFilter) {
             const file = this.app.vault.getAbstractFileByPath(filePath);
             if (file) {
                 const cache = this.app.metadataCache.getCache(filePath);
+                const fileTags: string[] = [];
+                
+                // Collect inline tags
                 if (cache?.tags) {
-                    const fileTags = cache.tags.map(t => t.tag.toLowerCase());
-                    for (const tag of options.tags!) {
-                        const normalizedTag = tag.startsWith("#") ? tag.toLowerCase() : `#${tag.toLowerCase()}`;
-                        if (fileTags.includes(normalizedTag)) {
-                            return true;
-                        }
+                    for (const t of cache.tags) {
+                        fileTags.push(t.tag.toLowerCase());
                     }
                 }
-                // Also check frontmatter tags
+                
+                // Collect frontmatter tags
                 if (cache?.frontmatter?.tags) {
                     const fmTags: string[] = Array.isArray(cache.frontmatter.tags) 
                         ? cache.frontmatter.tags 
                         : [cache.frontmatter.tags];
-                    for (const tag of options.tags!) {
-                        const normalizedTag = tag.startsWith("#") ? tag.slice(1).toLowerCase() : tag.toLowerCase();
-                        if (fmTags.map(t => t.toLowerCase()).includes(normalizedTag)) {
+                    for (const t of fmTags) {
+                        if (typeof t === "string") {
+                            const normalized = t.startsWith("#") ? t.toLowerCase() : `#${t.toLowerCase()}`;
+                            fileTags.push(normalized);
+                        }
+                    }
+                }
+                
+                // Also check singular 'tag' field
+                if (cache?.frontmatter?.tag && typeof cache.frontmatter.tag === "string") {
+                    const t = cache.frontmatter.tag;
+                    const normalized = t.startsWith("#") ? t.toLowerCase() : `#${t.toLowerCase()}`;
+                    fileTags.push(normalized);
+                }
+                
+                // Check if any selected tag matches file tags (with hierarchy)
+                for (const selectedTag of options.tags!) {
+                    const normalizedSelected = selectedTag.startsWith("#") 
+                        ? selectedTag.toLowerCase() 
+                        : `#${selectedTag.toLowerCase()}`;
+                    
+                    for (const fileTag of fileTags) {
+                        // Exact match
+                        if (fileTag === normalizedSelected) {
+                            return true;
+                        }
+                        // Hierarchy match: #project matches #project/subtask
+                        // If selected is #project, it should match #project/anything
+                        if (fileTag.startsWith(normalizedSelected + "/")) {
                             return true;
                         }
                     }
