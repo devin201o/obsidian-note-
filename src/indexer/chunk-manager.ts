@@ -1,5 +1,6 @@
 import { App, TFile } from "obsidian";
 import { RecursiveCharacterTextSplitter, TextSplitterConfig } from "./text-splitter";
+import { PrivacyManager } from "./privacy-manager";
 
 /**
  * Represents a chunk of text from a file
@@ -24,16 +25,18 @@ export interface Chunk {
 export class ChunkManager {
     private app: App;
     private splitter: RecursiveCharacterTextSplitter;
+    private privacyManager: PrivacyManager;
     /** Map of file path to array of chunks */
     private chunksByFile: Map<string, Chunk[]> = new Map();
 
-    constructor(app: App, splitterConfig?: Partial<TextSplitterConfig>) {
+    constructor(app: App, privacyManager: PrivacyManager, splitterConfig?: Partial<TextSplitterConfig>) {
         this.app = app;
+        this.privacyManager = privacyManager;
         this.splitter = new RecursiveCharacterTextSplitter(splitterConfig);
     }
 
     /**
-     * Process a file: read its content, split into chunks, and store them
+     * Process a file: read its content, redact sensitive data, split into chunks, and store them
      */
     async processFile(file: TFile): Promise<Chunk[]> {
         // Only process markdown files
@@ -41,7 +44,12 @@ export class ChunkManager {
             return [];
         }
 
-        const content = await this.app.vault.read(file);
+        // Read content from disk
+        let content = await this.app.vault.read(file);
+        
+        // CRITICAL: Redact sensitive data BEFORE any splitting or embedding
+        content = this.privacyManager.redact(content);
+        
         const chunks = this.createChunksFromContent(content, file);
         this.chunksByFile.set(file.path, chunks);
         
