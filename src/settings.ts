@@ -16,6 +16,8 @@ export interface MyPluginSettings {
     indexMarkdownOnly: boolean;
     enableRedaction: boolean;
     customRedactionPatterns: string;
+    retrievalPoolSize: number;
+    maxContextChunks: number;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -25,7 +27,9 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     openRouterModel: 'google/gemini-2.5-flash',
     indexMarkdownOnly: true,
     enableRedaction: true,
-    customRedactionPatterns: ''
+    customRedactionPatterns: '',
+    retrievalPoolSize: 50,
+    maxContextChunks: 15
 }
 
 /**
@@ -237,6 +241,33 @@ export class SampleSettingTab extends PluginSettingTab {
 				textArea.inputEl.cols = 40;
 				return textArea;
 			});
+
+		// ===== Search & Retrieval Section =====
+		containerEl.createEl("h3", { text: "Search & Retrieval" });
+
+		new Setting(containerEl)
+			.setName('Retrieval pool size')
+			.setDesc('Number of initial chunks to fetch for reranking. Higher values may improve accuracy but increase processing time.')
+			.addSlider(slider => slider
+				.setLimits(10, 100, 5)
+				.setValue(this.plugin.settings.retrievalPoolSize)
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.retrievalPoolSize = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Max context chunks')
+			.setDesc('Maximum number of chunks sent to the LLM. Higher values provide more context but use more tokens.')
+			.addSlider(slider => slider
+				.setLimits(1, 30, 1)
+				.setValue(this.plugin.settings.maxContextChunks)
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.maxContextChunks = value;
+					await this.plugin.saveSettings();
+				}));
 
 		// ===== General Settings Section =====
 		containerEl.createEl("h3", { text: "General Settings" });

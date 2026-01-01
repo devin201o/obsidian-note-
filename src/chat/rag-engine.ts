@@ -1,6 +1,12 @@
 import { EmbeddingManager } from "../indexer/embedding-manager";
 import { SearchOptions } from "../indexer/vector-store";
 import { sendChatMessage } from "../llm/openrouter";
+import type { MyPluginSettings } from "../settings";
+
+/**
+ * Settings getter function type
+ */
+type SettingsGetter = () => MyPluginSettings;
 
 /**
  * RAGEngine connects the embedding search with the LLM to provide
@@ -10,6 +16,7 @@ export class RAGEngine {
     private embeddingManager: EmbeddingManager;
     private apiKey: string = "";
     private model: string = "google/gemini-2.5-flash";
+    private getSettings: SettingsGetter | null = null;
 
     constructor(embeddingManager: EmbeddingManager) {
         this.embeddingManager = embeddingManager;
@@ -30,6 +37,13 @@ export class RAGEngine {
     }
 
     /**
+     * Set settings getter for dynamic access to plugin settings
+     */
+    setSettingsGetter(getter: SettingsGetter): void {
+        this.getSettings = getter;
+    }
+
+    /**
      * Ask a question and get a RAG-augmented response
      * @param userQuery The user's question
      * @param conversationHistory Previous messages for context
@@ -45,8 +59,17 @@ export class RAGEngine {
             return "Error: API key not set. Please configure it in Settings → obsidian note+.";
         }
 
-        // Step 1: Retrieve relevant chunks with optional filters
-        const searchResults = await this.embeddingManager.search(userQuery, 5, searchOptions);
+        // Get retrieval settings (use defaults if getter not set)
+        const poolSize = this.getSettings?.().retrievalPoolSize ?? 50;
+        const maxChunks = this.getSettings?.().maxContextChunks ?? 15;
+
+        // Step 1: Retrieve relevant chunks with hybrid search (vector + keyword reranking)
+        const searchResults = await this.embeddingManager.search(
+            userQuery, 
+            maxChunks, 
+            poolSize, 
+            searchOptions
+        );
 
         // Step 2: Build the system prompt with context
         const systemPrompt = this.buildSystemPrompt(searchResults, searchOptions);
