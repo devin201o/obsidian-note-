@@ -170,4 +170,35 @@ export class PrivacyManager {
     getCustomPatternCount(): number {
         return this.customPatterns.length;
     }
+
+    /**
+     * Check if a file path is within an excluded folder
+     * @param filePath The file path to check
+     * @param excludedFolders Array of folder paths to exclude
+     * @returns true if the file is in an excluded folder
+     */
+    static isFolderExcluded(filePath: string, excludedFolders: string[]): boolean {
+        if (!excludedFolders || excludedFolders.length === 0) {
+            return false;
+        }
+
+        for (const folder of excludedFolders) {
+            if (!folder) continue;
+            
+            // Normalize folder path: ensure it ends with / for proper prefix matching
+            const normalizedFolder = folder.endsWith("/") ? folder : folder + "/";
+            
+            // Check if file path starts with the excluded folder
+            if (filePath.startsWith(normalizedFolder) || filePath.startsWith(folder + "/")) {
+                return true;
+            }
+            
+            // Also check if the file is directly at the folder path (edge case)
+            if (filePath === folder) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

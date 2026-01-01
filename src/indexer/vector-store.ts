@@ -64,10 +64,37 @@ export class VectorStore {
     private app: App;
     private vectors: Map<string, StoredVector> = new Map();
     private isDirty: boolean = false;
+    /** Folders to exclude from search results */
+    private excludedFolders: string[] = [];
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
         this.app = plugin.app;
+    }
+
+    /**
+     * Set the list of excluded folders
+     */
+    setExcludedFolders(folders: string[]): void {
+        this.excludedFolders = folders;
+    }
+
+    /**
+     * Check if a file path is in an excluded folder
+     */
+    private isExcluded(filePath: string): boolean {
+        if (!this.excludedFolders || this.excludedFolders.length === 0) {
+            return false;
+        }
+
+        for (const folder of this.excludedFolders) {
+            if (!folder) continue;
+            const normalizedFolder = folder.endsWith("/") ? folder : folder + "/";
+            if (filePath.startsWith(normalizedFolder) || filePath.startsWith(folder + "/")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -283,6 +310,11 @@ export class VectorStore {
                 continue;
             }
 
+            // Skip vectors from excluded folders
+            if (this.isExcluded(stored.filePath)) {
+                continue;
+            }
+
             // Apply search filters
             if (!this.matchesFilter(stored.filePath, options)) {
                 continue;
@@ -398,5 +430,35 @@ export class VectorStore {
      */
     hasUnsavedChanges(): boolean {
         return this.isDirty;
+    }
+
+    /**
+     * Purge all vectors for files in excluded folders
+     * @returns The number of vectors deleted
+     */
+    purgeExcludedVectors(): number {
+        if (!this.excludedFolders || this.excludedFolders.length === 0) {
+            return 0;
+        }
+
+        let deletedCount = 0;
+        const toDelete: string[] = [];
+
+        for (const [chunkId, stored] of this.vectors) {
+            if (stored.filePath && this.isExcluded(stored.filePath)) {
+                toDelete.push(chunkId);
+            }
+        }
+
+        for (const chunkId of toDelete) {
+            this.vectors.delete(chunkId);
+            deletedCount++;
+        }
+
+        if (deletedCount > 0) {
+            this.isDirty = true;
+        }
+
+        return deletedCount;
     }
 }
