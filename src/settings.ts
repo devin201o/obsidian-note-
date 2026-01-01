@@ -13,13 +13,17 @@ export interface MyPluginSettings {
     chatHistory: ChatMessage[];
     openRouterApiKey: string;
     indexMarkdownOnly: boolean;
+    enableRedaction: boolean;
+    customRedactionPatterns: string;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
     mySetting: 'default',
     chatHistory: [],
     openRouterApiKey: '',
-    indexMarkdownOnly: true
+    indexMarkdownOnly: true,
+    enableRedaction: true,
+    customRedactionPatterns: ''
 }
 
 /**
@@ -202,6 +206,35 @@ export class SampleSettingTab extends PluginSettingTab {
 					this.plugin.settings.indexMarkdownOnly = value;
 					await this.plugin.saveSettings();
 				}));
+
+		// ===== Privacy & Redaction Section =====
+		containerEl.createEl("h3", { text: "Privacy & Redaction" });
+
+		new Setting(containerEl)
+			.setName('Enable redaction')
+			.setDesc('Automatically redact sensitive data (API keys, emails, private keys) before indexing. Files are still searchable, but secret values are replaced with placeholders.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.enableRedaction)
+				.onChange(async (value) => {
+					this.plugin.settings.enableRedaction = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Custom redaction patterns')
+			.setDesc('Add custom regex patterns to redact (one per line). Example: sk-[a-zA-Z0-9]+')
+			.addTextArea(textArea => {
+				textArea
+					.setPlaceholder('sk-[a-zA-Z0-9]+\nmy-secret-pattern')
+					.setValue(this.plugin.settings.customRedactionPatterns)
+					.onChange(async (value) => {
+						this.plugin.settings.customRedactionPatterns = value;
+						await this.plugin.saveSettings();
+					});
+				textArea.inputEl.rows = 4;
+				textArea.inputEl.cols = 40;
+				return textArea;
+			});
 
 		// ===== General Settings Section =====
 		containerEl.createEl("h3", { text: "General Settings" });

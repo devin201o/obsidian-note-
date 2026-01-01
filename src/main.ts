@@ -6,6 +6,7 @@ import { ChunkManager } from "./indexer/chunk-manager";
 import { VectorStore } from "./indexer/vector-store";
 import { EmbeddingManager } from "./indexer/embedding-manager";
 import { RAGEngine } from "./chat/rag-engine";
+import { PrivacyManager } from "./indexer/privacy-manager";
 
 export default class HelloWorldPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -14,6 +15,7 @@ export default class HelloWorldPlugin extends Plugin {
 	vectorStore: VectorStore;
 	embeddingManager: EmbeddingManager;
 	ragEngine: RAGEngine;
+	privacyManager: PrivacyManager;
 	
 	// Debounced update function for file modifications
 	private debouncedUpdateFile = debounce(
@@ -35,8 +37,13 @@ export default class HelloWorldPlugin extends Plugin {
 		// Initialize the vault indexer
 		this.indexer = new VaultIndexer(this.app);
 		
-		// Initialize the chunk manager
-		this.chunkManager = new ChunkManager(this.app, {
+		// Initialize the privacy manager
+		this.privacyManager = new PrivacyManager();
+		this.privacyManager.setEnabled(this.settings.enableRedaction);
+		this.privacyManager.setCustomPatterns(this.settings.customRedactionPatterns);
+		
+		// Initialize the chunk manager with privacy manager
+		this.chunkManager = new ChunkManager(this.app, this.privacyManager, {
 			chunkSize: 1000,
 			chunkOverlap: 200
 		});
@@ -408,6 +415,11 @@ export default class HelloWorldPlugin extends Plugin {
 		}
 		if (this.ragEngine) {
 			this.ragEngine.setApiKey(this.settings.openRouterApiKey);
+		}
+		// Update privacy manager settings
+		if (this.privacyManager) {
+			this.privacyManager.setEnabled(this.settings.enableRedaction);
+			this.privacyManager.setCustomPatterns(this.settings.customRedactionPatterns);
 		}
 	}
 }
