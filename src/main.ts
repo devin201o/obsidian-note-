@@ -3,17 +3,25 @@ import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
 import { ChatbotView, VIEW_TYPE_CHATBOT } from "./views/views";
 import { VaultIndexer } from "./indexer";
 import { ChunkManager } from "./indexer/chunk-manager";
+import { VectorStore } from "./indexer/vector-store";
+import { EmbeddingManager } from "./indexer/embedding-manager";
 
 export default class HelloWorldPlugin extends Plugin {
 	settings: MyPluginSettings;
 	indexer: VaultIndexer;
 	chunkManager: ChunkManager;
+	vectorStore: VectorStore;
+	embeddingManager: EmbeddingManager;
 	
 	// Debounced update function for file modifications
 	private debouncedUpdateFile = debounce(
 		async (file: TFile) => {
 			await this.chunkManager.updateFile(file);
 			console.log(`Rechunked file: ${file.path}`);
+			// Update embeddings for the modified file
+			if (this.settings.openRouterApiKey) {
+				await this.embeddingManager.embedFile(file.path);
+			}
 		},
 		2000,
 		true
@@ -30,6 +38,18 @@ export default class HelloWorldPlugin extends Plugin {
 			chunkSize: 1000,
 			chunkOverlap: 200
 		});
+		
+		// Initialize the vector store
+		this.vectorStore = new VectorStore(this);
+		await this.vectorStore.load();
+		
+		// Initialize the embedding manager
+		this.embeddingManager = new EmbeddingManager(
+			this.chunkManager,
+			this.vectorStore,
+			{ batchSize: 20, batchDelayMs: 100 }
+		);
+		this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
 		
 		// Index the vault on startup
 		await this.indexVault();
@@ -50,7 +70,8 @@ export default class HelloWorldPlugin extends Plugin {
 			this.app.vault.on("delete", (file: TAbstractFile) => {
 				if (file instanceof TFile) {
 					this.chunkManager.deleteFile(file.path);
-					console.log(`Deleted chunks for: ${file.path}`);
+					this.embeddingManager.deleteFileVectors(file.path);
+					console.log(`Deleted chunks and vectors for: ${file.path}`);
 				}
 			})
 		);
@@ -59,7 +80,8 @@ export default class HelloWorldPlugin extends Plugin {
 			this.app.vault.on("rename", (file: TAbstractFile, oldPath: string) => {
 				if (file instanceof TFile) {
 					this.chunkManager.renameFile(oldPath, file.path);
-					console.log(`Renamed chunks: ${oldPath} -> ${file.path}`);
+					this.embeddingManager.renameFileVectors(oldPath, file.path);
+					console.log(`Renamed chunks and vectors: ${oldPath} -> ${file.path}`);
 				}
 			})
 		);
@@ -88,12 +110,13 @@ export default class HelloWorldPlugin extends Plugin {
 			}
 		});
 		
-		// Add command to rebuild the chunk index
+		// Add command to rebuild the chunk index and embeddings
 		this.addCommand({
 			id: 'rebuild-index',
 			name: 'Rebuild Index',
 			callback: async () => {
 				await this.rebuildChunkIndex();
+				await this.rebuildEmbeddings();
 			}
 		});
 		
@@ -161,7 +184,11 @@ export default class HelloWorldPlugin extends Plugin {
 		}
 	}
 
-	onunload() {
+	async onunload() {
+		// Save any pending vector changes
+		if (this.vectorStore?.hasUnsavedChanges()) {
+			await this.vectorStore.save();
+		}
 	}
 
 	async indexVault() {
@@ -194,12 +221,40 @@ export default class HelloWorldPlugin extends Plugin {
 		}
 	}
 
+	async rebuildEmbeddings() {
+		if (!this.settings.openRouterApiKey) {
+			new Notice("API key not set. Skipping embeddings.");
+			return;
+		}
+
+		const notice = new Notice("Generating embeddings...", 0);
+		try {
+			this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
+			const result = await this.embeddingManager.embedAllFiles();
+			notice.hide();
+			
+			if (result.error) {
+				new Notice(`Embedding error: ${result.error}`);
+			} else {
+				new Notice(`Embeddings: ${result.processed} new, ${result.skipped} cached, ${result.failed} failed`);
+			}
+		} catch (error) {
+			notice.hide();
+			new Notice("Error generating embeddings");
+			console.error("Embedding error:", error);
+		}
+	}
+
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		// Update embedding manager with new API key if it changes
+		if (this.embeddingManager) {
+			this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
+		}
 	}
 }
 
