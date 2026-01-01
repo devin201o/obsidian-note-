@@ -70,6 +70,7 @@ export default class HelloWorldPlugin extends Plugin {
 		this.ragEngine = new RAGEngine(this.embeddingManager);
 		this.ragEngine.setApiKey(this.settings.openRouterApiKey);
 		this.ragEngine.setModel(this.settings.openRouterModel);
+		this.ragEngine.setSettingsGetter(() => this.settings);
 		
 		// Index the vault on startup
 		await this.indexVault();

@@ -270,6 +270,34 @@ export class EmbeddingManager {
     }
 
     /**
+     * Calculate a keyword match score between query and text
+     * Returns a normalized score between 0 and 1
+     */
+    private calculateKeywordScore(query: string, text: string): number {
+        // Sanitize: lowercase and split into words
+        const queryWords = query.toLowerCase().split(/\s+/);
+        
+        // Filter out short words (likely stop words like "a", "an", "the", "is", etc.)
+        const keywords = queryWords.filter(word => word.length >= 3);
+        
+        if (keywords.length === 0) {
+            return 0;
+        }
+        
+        const textLower = text.toLowerCase();
+        let matchCount = 0;
+        
+        for (const keyword of keywords) {
+            if (textLower.includes(keyword)) {
+                matchCount++;
+            }
+        }
+        
+        // Return normalized score (0-1)
+        return matchCount / keywords.length;
+    }
+
+    /**
      * Get embedding vector for a query text
      */
     async getQueryEmbedding(queryText: string): Promise<number[] | null> {
@@ -288,14 +316,16 @@ export class EmbeddingManager {
     }
 
     /**
-     * Search for similar chunks using the VectorStore search
+     * Search for similar chunks using hybrid search (vector + keyword reranking)
      * @param queryText The text to search for
-     * @param limit Maximum number of results
+     * @param limit Maximum number of results to return after reranking
+     * @param poolSize Number of candidates to fetch for reranking
      * @param options Optional filters for files, folders, or tags
      */
     async search(
         queryText: string,
-        limit: number = 5,
+        limit: number = 15,
+        poolSize: number = 50,
         options?: SearchOptions
     ): Promise<Array<{ chunkId: string; content: string; filePath: string; fileLink: string; score: number }>> {
         const queryVector = await this.getQueryEmbedding(queryText);
@@ -303,7 +333,27 @@ export class EmbeddingManager {
             return [];
         }
 
-        return this.vectorStore.search(queryVector, limit, options);
+        // Step 1: Fetch a larger pool of candidates using vector similarity
+        const candidates = this.vectorStore.search(queryVector, poolSize, options);
+
+        if (candidates.length === 0) {
+            return [];
+        }
+
+        // Step 2: Calculate hybrid scores (vector similarity + keyword match)
+        const scoredCandidates = candidates.map(candidate => {
+            const keywordScore = this.calculateKeywordScore(queryText, candidate.content);
+            // Hybrid score: 70% vector similarity, 30% keyword match
+            const hybridScore = (candidate.score * 0.7) + (keywordScore * 0.3);
+            return {
+                ...candidate,
+                score: hybridScore
+            };
+        });
+
+        // Step 3: Re-sort by hybrid score and return top results
+        scoredCandidates.sort((a, b) => b.score - a.score);
+        return scoredCandidates.slice(0, limit);
     }
 
     /**
@@ -313,7 +363,7 @@ export class EmbeddingManager {
         queryText: string,
         topK: number = 5
     ): Promise<Array<{ chunk: Chunk; score: number }>> {
-        const searchResults = await this.search(queryText, topK);
+        const searchResults = await this.search(queryText, topK, topK * 2);
         
         // Map search results back to Chunk objects
         const results: Array<{ chunk: Chunk; score: number }> = [];
