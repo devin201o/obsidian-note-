@@ -50,6 +50,22 @@ export class ChatbotView extends ItemView {
         
         this.chatLogEl = container.createDiv({ cls: "chat-log" });
         
+        // Handle clicks on internal links (WikiLinks)
+        this.chatLogEl.addEventListener("click", (ev: MouseEvent) => {
+            const target = ev.target as HTMLElement;
+            // Check if clicked element or its parent is an internal link
+            const link = target.closest("a.internal-link") as HTMLElement | null;
+            if (link) {
+                ev.preventDefault();
+                const href = link.getAttribute("data-href");
+                if (href) {
+                    // Check if Ctrl (Windows/Linux) or Meta/Cmd (Mac) is held for new tab
+                    const newLeaf = ev.ctrlKey || ev.metaKey;
+                    this.app.workspace.openLinkText(href, "", newLeaf);
+                }
+            }
+        });
+        
         // Render existing messages from storage
         for (const msg of this.plugin.settings.chatHistory) {
             await this.renderMessage(msg);
