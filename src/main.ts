@@ -43,6 +43,12 @@ export default class HelloWorldPlugin extends Plugin {
 		this.vectorStore = new VectorStore(this);
 		await this.vectorStore.load();
 		
+		// Check for legacy vectors that need migration
+		if (this.vectorStore.hasLegacyVectors()) {
+			console.log("Legacy vectors detected. They will be re-embedded with content metadata.");
+			new Notice("Vector store needs update. Please run 'Rebuild Index' to update embeddings.");
+		}
+		
 		// Initialize the embedding manager
 		this.embeddingManager = new EmbeddingManager(
 			this.chunkManager,
@@ -117,6 +123,15 @@ export default class HelloWorldPlugin extends Plugin {
 			callback: async () => {
 				await this.rebuildChunkIndex();
 				await this.rebuildEmbeddings();
+			}
+		});
+
+		// Add command to test search functionality
+		this.addCommand({
+			id: 'test-search',
+			name: 'Test Search',
+			callback: async () => {
+				await this.testSearch();
 			}
 		});
 		
@@ -245,6 +260,51 @@ export default class HelloWorldPlugin extends Plugin {
 		}
 	}
 
+	async testSearch() {
+		if (!this.settings.openRouterApiKey) {
+			new Notice("API key not set. Please configure it in settings.");
+			return;
+		}
+
+		// Open modal to get search query
+		new SearchInputModal(this.app, async (query) => {
+			if (!query || query.trim() === "") {
+				new Notice("Empty query.");
+				return;
+			}
+
+			const notice = new Notice("Searching...", 0);
+			try {
+				const results = await this.embeddingManager.search(query.trim(), 3);
+				notice.hide();
+
+				if (results.length === 0) {
+					new Notice("No results found.");
+					console.log("Search returned no results for:", query);
+					return;
+				}
+
+				new Notice(`Found ${results.length} results. Check console for details.`);
+				
+				console.log("=== Search Results ===");
+				console.log(`Query: "${query}"`);
+				console.log("---");
+				
+				results.forEach((result, index) => {
+					console.log(`\n[${index + 1}] Score: ${result.score.toFixed(4)}`);
+					console.log(`    Source: ${result.fileLink} (${result.filePath})`);
+					console.log(`    Content: ${result.content.substring(0, 200)}...`);
+				});
+				
+				console.log("\n=== End Results ===");
+			} catch (error) {
+				notice.hide();
+				new Notice("Search failed. Check console for details.");
+				console.error("Search error:", error);
+			}
+		}).open();
+	}
+
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
 	}
@@ -270,6 +330,65 @@ class SampleModal extends Modal {
 
 	onClose() {
 		const {contentEl} = this;
+		contentEl.empty();
+	}
+}
+
+class SearchInputModal extends Modal {
+	private onSubmit: (query: string) => void;
+	private inputEl: HTMLInputElement | null = null;
+
+	constructor(app: App, onSubmit: (query: string) => void) {
+		super(app);
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.addClass("search-input-modal");
+
+		contentEl.createEl("h3", { text: "Search Notes" });
+
+		this.inputEl = contentEl.createEl("input", {
+			type: "text",
+			placeholder: "Enter search query...",
+			cls: "search-input"
+		});
+		this.inputEl.style.width = "100%";
+		this.inputEl.style.padding = "8px";
+		this.inputEl.style.marginBottom = "12px";
+
+		this.inputEl.addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				this.submit();
+			}
+		});
+
+		const buttonContainer = contentEl.createDiv({ cls: "search-button-container" });
+		buttonContainer.style.display = "flex";
+		buttonContainer.style.justifyContent = "flex-end";
+		buttonContainer.style.gap = "8px";
+
+		const cancelBtn = buttonContainer.createEl("button", { text: "Cancel" });
+		cancelBtn.addEventListener("click", () => this.close());
+
+		const searchBtn = buttonContainer.createEl("button", { text: "Search", cls: "mod-cta" });
+		searchBtn.addEventListener("click", () => this.submit());
+
+		// Focus input after modal opens
+		setTimeout(() => this.inputEl?.focus(), 10);
+	}
+
+	private submit() {
+		const query = this.inputEl?.value ?? "";
+		this.close();
+		this.onSubmit(query);
+	}
+
+	onClose() {
+		const { contentEl } = this;
 		contentEl.empty();
 	}
 }

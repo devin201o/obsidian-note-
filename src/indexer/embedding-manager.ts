@@ -123,7 +123,14 @@ export class EmbeddingManager {
                     const embedding = response.embeddings[j];
                     const item = batch[j];
                     if (embedding && item) {
-                        this.vectorStore.saveVector(item.chunk.id, embedding, item.hash);
+                        this.vectorStore.saveVector(
+                            item.chunk.id, 
+                            embedding, 
+                            item.hash,
+                            item.chunk.content,
+                            item.chunk.filePath,
+                            item.chunk.fileLink
+                        );
                         result.processed++;
                     } else {
                         result.failed++;
@@ -215,6 +222,10 @@ export class EmbeddingManager {
             return;
         }
 
+        // Calculate new file link from new path
+        const newFileName = newPath.replace(/\.md$/, "").split("/").pop() ?? newPath;
+        const newFileLink = `[[${newFileName}]]`;
+
         // For each old ID, create a new entry with the updated path
         for (const oldId of oldIds) {
             const stored = this.vectorStore.getVector(oldId);
@@ -223,7 +234,14 @@ export class EmbeddingManager {
                 const index = oldId.substring(oldPath.length + 2); // +2 for "::"
                 const newId = `${newPath}::${index}`;
                 
-                this.vectorStore.saveVector(newId, stored.vector, stored.contentHash);
+                this.vectorStore.saveVector(
+                    newId, 
+                    stored.vector, 
+                    stored.contentHash,
+                    stored.content,
+                    newPath,
+                    newFileLink
+                );
             }
         }
 
@@ -252,87 +270,57 @@ export class EmbeddingManager {
     }
 
     /**
-     * Find similar chunks using cosine similarity
+     * Get embedding vector for a query text
+     */
+    async getQueryEmbedding(queryText: string): Promise<number[] | null> {
+        if (!this.apiKey) {
+            console.error("API key not set");
+            return null;
+        }
+
+        const response = await getEmbeddings(this.apiKey, [queryText]);
+        if (response.error || response.embeddings.length === 0) {
+            console.error("Failed to get query embedding:", response.error);
+            return null;
+        }
+
+        return response.embeddings[0] ?? null;
+    }
+
+    /**
+     * Search for similar chunks using the VectorStore search
+     */
+    async search(
+        queryText: string,
+        limit: number = 5
+    ): Promise<Array<{ chunkId: string; content: string; filePath: string; fileLink: string; score: number }>> {
+        const queryVector = await this.getQueryEmbedding(queryText);
+        if (!queryVector) {
+            return [];
+        }
+
+        return this.vectorStore.search(queryVector, limit);
+    }
+
+    /**
+     * Find similar chunks using cosine similarity (returns full Chunk objects)
      */
     async findSimilar(
         queryText: string,
         topK: number = 5
     ): Promise<Array<{ chunk: Chunk; score: number }>> {
-        if (!this.apiKey) {
-            console.error("API key not set for similarity search");
-            return [];
-        }
-
-        // Get embedding for query
-        const response = await getEmbeddings(this.apiKey, [queryText]);
-        if (response.error || response.embeddings.length === 0) {
-            console.error("Failed to get query embedding:", response.error);
-            return [];
-        }
-
-        const queryVector = response.embeddings[0];
-        if (!queryVector) {
-            console.error("No embedding returned for query");
-            return [];
-        }
+        const searchResults = await this.search(queryText, topK);
         
-        const allVectors = this.vectorStore.getAllVectors();
-
-        // Calculate cosine similarity with all vectors
-        const similarities: Array<{ chunkId: string; score: number }> = [];
-
-        for (const { chunkId, vector } of allVectors) {
-            const score = this.cosineSimilarity(queryVector, vector);
-            similarities.push({ chunkId, score });
-        }
-
-        // Sort by similarity (highest first) and take top K
-        similarities.sort((a, b) => b.score - a.score);
-        const topResults = similarities.slice(0, topK);
-
-        // Map back to chunks
+        // Map search results back to Chunk objects
         const results: Array<{ chunk: Chunk; score: number }> = [];
-        for (const { chunkId, score } of topResults) {
-            // Extract file path from chunk ID
-            const separatorIndex = chunkId.lastIndexOf("::");
-            if (separatorIndex !== -1) {
-                const filePath = chunkId.substring(0, separatorIndex);
-                const chunks = this.chunkManager.getChunksForFile(filePath);
-                const chunk = chunks.find(c => c.id === chunkId);
-                if (chunk) {
-                    results.push({ chunk, score });
-                }
+        for (const result of searchResults) {
+            const chunks = this.chunkManager.getChunksForFile(result.filePath);
+            const chunk = chunks.find(c => c.id === result.chunkId);
+            if (chunk) {
+                results.push({ chunk, score: result.score });
             }
         }
 
         return results;
-    }
-
-    /**
-     * Calculate cosine similarity between two vectors
-     */
-    private cosineSimilarity(a: number[], b: number[]): number {
-        if (a.length !== b.length) {
-            return 0;
-        }
-
-        let dotProduct = 0;
-        let normA = 0;
-        let normB = 0;
-
-        for (let i = 0; i < a.length; i++) {
-            const aVal = a[i] ?? 0;
-            const bVal = b[i] ?? 0;
-            dotProduct += aVal * bVal;
-            normA += aVal * aVal;
-            normB += bVal * bVal;
-        }
-
-        const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-        if (denominator === 0) {
-            return 0;
-        }
-
-        return dotProduct / denominator;
     }
 }
