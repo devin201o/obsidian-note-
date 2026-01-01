@@ -77,6 +77,11 @@ export async function getEmbeddings(
         const sortedData = response.data.sort((a, b) => a.index - b.index);
         const embeddings = sortedData.map(item => item.embedding);
 
+        // Debug: Log embedding dimensions
+        if (embeddings.length > 0 && embeddings[0]) {
+            console.log(`Received ${embeddings.length} embedding(s) with dimensions: ${embeddings[0].length}`);
+        }
+
         return { embeddings };
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";

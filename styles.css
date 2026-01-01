@@ -56,6 +56,7 @@ If your plugin does not need CSS, delete this file.
 .chat-input-container {
     display: flex;
     gap: 8px;
+    align-items: flex-end;
 }
 
 .chat-input {
@@ -65,6 +66,16 @@ If your plugin does not need CSS, delete this file.
     border-radius: 4px;
     background-color: var(--background-primary);
     color: var(--text-normal);
+    resize: none;
+    min-height: 40px;
+    max-height: 120px;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.chat-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .chat-input:focus {
@@ -83,6 +94,11 @@ If your plugin does not need CSS, delete this file.
 
 .chat-send-button:hover {
     background-color: var(--interactive-accent-hover);
+}
+
+.chat-send-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 /* Chat Message Styles */
@@ -110,6 +126,42 @@ If your plugin does not need CSS, delete this file.
 
 .chat-message-content {
     word-wrap: break-word;
+}
+
+/* Rendered markdown in bot messages */
+.chat-message-bot .chat-message-content p {
+    margin: 0 0 8px 0;
+}
+
+.chat-message-bot .chat-message-content p:last-child {
+    margin-bottom: 0;
+}
+
+.chat-message-bot .chat-message-content ul,
+.chat-message-bot .chat-message-content ol {
+    margin: 4px 0;
+    padding-left: 20px;
+}
+
+/* Make WikiLinks stand out */
+.chat-message-bot .chat-message-content .internal-link {
+    color: var(--link-color);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.chat-message-bot .chat-message-content .internal-link:hover {
+    color: var(--link-color-hover);
+}
+
+/* Typing indicator animation */
+.chat-typing .chat-message-content {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
 }
 
 .chat-message-time {

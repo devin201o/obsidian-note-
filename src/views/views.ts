@@ -1,18 +1,23 @@
-import { ItemView, WorkspaceLeaf, Notice, Modal, App } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Modal, App, MarkdownRenderer, Component } from "obsidian";
 import type MyPlugin from "../main";
 import type { ChatMessage } from "../settings";
-import { sendChatMessage } from "../llm/openrouter";
+import type { RAGEngine } from "../chat/rag-engine";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 
 export class ChatbotView extends ItemView {
     private plugin: MyPlugin;
+    private ragEngine: RAGEngine;
     private chatLogEl: HTMLElement | null = null;
-    private inputEl: HTMLInputElement | null = null;
+    private inputEl: HTMLTextAreaElement | null = null;
+    private sendButton: HTMLButtonElement | null = null;
+    private renderComponent: Component;
 
-    constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
+    constructor(leaf: WorkspaceLeaf, plugin: MyPlugin, ragEngine: RAGEngine) {
         super(leaf);
         this.plugin = plugin;
+        this.ragEngine = ragEngine;
+        this.renderComponent = new Component();
     }
 
     getViewType() {
@@ -20,10 +25,12 @@ export class ChatbotView extends ItemView {
     }
 
     getDisplayText() {
-        return "Chatbot view";
+        return "Chat with Notes";
     }
 
     async onOpen() {
+        this.renderComponent.load();
+        
         const container = this.containerEl.children[1];
         if (!container) return;
         container.empty();
@@ -32,7 +39,7 @@ export class ChatbotView extends ItemView {
         
         // Header with title and reset button
         const headerEl = container.createDiv({ cls: "chat-header" });
-        headerEl.createEl("h4", { text: "Chatbot" });
+        headerEl.createEl("h4", { text: "Chat with Notes" });
         
         const resetButton = headerEl.createEl("button", {
             cls: "chat-reset-button",
@@ -44,20 +51,21 @@ export class ChatbotView extends ItemView {
         this.chatLogEl = container.createDiv({ cls: "chat-log" });
         
         // Render existing messages from storage
-        this.plugin.settings.chatHistory.forEach(msg => {
-            this.renderMessage(msg);
-        });
+        for (const msg of this.plugin.settings.chatHistory) {
+            await this.renderMessage(msg);
+        }
         this.scrollToBottom();
 
         const inputContainer = container.createDiv({ cls: "chat-input-container" });
         
-        this.inputEl = inputContainer.createEl("input", { 
-            type: "text", 
-            placeholder: "Type a message...",
+        // Use textarea for multi-line input
+        this.inputEl = inputContainer.createEl("textarea", { 
+            placeholder: "Ask about your notes...",
             cls: "chat-input"
         });
+        this.inputEl.rows = 2;
 
-        const sendButton = inputContainer.createEl("button", {
+        this.sendButton = inputContainer.createEl("button", {
             text: "Send",
             cls: "chat-send-button"
         });
@@ -69,7 +77,7 @@ export class ChatbotView extends ItemView {
             }
         });
 
-        sendButton.addEventListener("click", () => {
+        this.sendButton.addEventListener("click", () => {
             this.sendMessage();
         });
     }
@@ -86,6 +94,9 @@ export class ChatbotView extends ItemView {
             return;
         }
 
+        // Disable input during processing
+        this.setInputEnabled(false);
+
         const userMessage: ChatMessage = {
             content,
             sender: "user",
@@ -95,61 +106,94 @@ export class ChatbotView extends ItemView {
         // Add user message to storage and render
         this.plugin.settings.chatHistory.push(userMessage);
         await this.plugin.saveSettings();
-        this.renderMessage(userMessage);
+        await this.renderMessage(userMessage);
         
         this.inputEl.value = "";
-        this.inputEl.focus();
         this.scrollToBottom();
 
-        // Build conversation history for LLM
-        const llmMessages: { role: "user" | "assistant" | "system"; content: string }[] = [
-            { role: "system", content: "You are a helpful assistant." }
-        ];
+        // Build conversation history for RAG (last 10 messages for context)
+        const recentHistory = this.plugin.settings.chatHistory.slice(-11, -1); // Exclude current message
+        const conversationHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
         
-        // Include recent conversation history (last 10 messages for context)
-        const recentHistory = this.plugin.settings.chatHistory.slice(-10);
         for (const msg of recentHistory) {
-            llmMessages.push({
+            conversationHistory.push({
                 role: msg.sender === "user" ? "user" : "assistant",
                 content: msg.content
             });
         }
 
-        // Send to LLM
-        const response = await sendChatMessage(
-            this.plugin.settings.openRouterApiKey,
-            llmMessages
-        );
+        // Show typing indicator
+        const typingIndicator = this.showTypingIndicator();
 
-        if (response.error) {
-            new Notice(`Error: ${response.error}`);
-            return;
+        try {
+            // Send to RAG engine
+            const response = await this.ragEngine.ask(content, conversationHistory);
+
+            // Remove typing indicator
+            typingIndicator.remove();
+
+            // Create and save bot response
+            const botMessage: ChatMessage = {
+                content: response,
+                sender: "bot",
+                timestamp: new Date().toISOString()
+            };
+
+            this.plugin.settings.chatHistory.push(botMessage);
+            await this.plugin.saveSettings();
+            await this.renderMessage(botMessage);
+            this.scrollToBottom();
+        } catch (error) {
+            typingIndicator.remove();
+            const errorMsg = error instanceof Error ? error.message : "Unknown error";
+            new Notice(`Error: ${errorMsg}`);
+        } finally {
+            this.setInputEnabled(true);
+            this.inputEl?.focus();
         }
-
-        // Create and save bot response
-        const botMessage: ChatMessage = {
-            content: response.content,
-            sender: "bot",
-            timestamp: new Date().toISOString()
-        };
-
-        this.plugin.settings.chatHistory.push(botMessage);
-        await this.plugin.saveSettings();
-        this.renderMessage(botMessage);
-        this.scrollToBottom();
     }
 
-    private renderMessage(message: ChatMessage) {
+    private setInputEnabled(enabled: boolean) {
+        if (this.inputEl) {
+            this.inputEl.disabled = !enabled;
+        }
+        if (this.sendButton) {
+            this.sendButton.disabled = !enabled;
+        }
+    }
+
+    private showTypingIndicator(): HTMLElement {
+        if (!this.chatLogEl) {
+            return document.createElement("div");
+        }
+        const indicator = this.chatLogEl.createDiv({ cls: "chat-message chat-message-bot chat-typing" });
+        indicator.createDiv({ cls: "chat-message-content", text: "Thinking..." });
+        this.scrollToBottom();
+        return indicator;
+    }
+
+    private async renderMessage(message: ChatMessage) {
         if (!this.chatLogEl) return;
 
         const messageEl = this.chatLogEl.createDiv({ 
             cls: `chat-message chat-message-${message.sender}` 
         });
 
-        messageEl.createDiv({ 
-            cls: "chat-message-content",
-            text: message.content 
-        });
+        const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
+
+        // Use MarkdownRenderer for bot messages to make [[WikiLinks]] clickable
+        if (message.sender === "bot") {
+            await MarkdownRenderer.render(
+                this.app,
+                message.content,
+                contentEl,
+                "",
+                this.renderComponent
+            );
+        } else {
+            // Plain text for user messages
+            contentEl.setText(message.content);
+        }
 
         const date = new Date(message.timestamp);
         const timeStr = date.toLocaleTimeString([], { 
@@ -164,7 +208,12 @@ export class ChatbotView extends ItemView {
 
     private scrollToBottom() {
         if (!this.chatLogEl) return;
-        this.chatLogEl.scrollTop = this.chatLogEl.scrollHeight;
+        // Use requestAnimationFrame to ensure DOM has updated
+        requestAnimationFrame(() => {
+            if (this.chatLogEl) {
+                this.chatLogEl.scrollTop = this.chatLogEl.scrollHeight;
+            }
+        });
     }
 
     private async resetConversation() {
@@ -196,7 +245,8 @@ export class ChatbotView extends ItemView {
     }
 
     async onClose() {
-        // Nothing to clean up - messages are in plugin.settings
+        // Unload the render component to clean up any registered resources
+        this.renderComponent.unload();
     }
 }
 

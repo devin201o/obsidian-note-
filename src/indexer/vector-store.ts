@@ -8,6 +8,28 @@ export interface StoredVector {
     vector: number[];
     /** Hash of the content to detect changes */
     contentHash: string;
+    /** The actual text content of the chunk */
+    content: string;
+    /** The file path this chunk belongs to */
+    filePath: string;
+    /** WikiLink format for LLM reference */
+    fileLink: string;
+}
+
+/**
+ * Search result from vector similarity search
+ */
+export interface SearchResult {
+    /** The chunk ID */
+    chunkId: string;
+    /** The text content of the chunk */
+    content: string;
+    /** The file path */
+    filePath: string;
+    /** WikiLink format */
+    fileLink: string;
+    /** Cosine similarity score (0-1) */
+    score: number;
 }
 
 /**
@@ -98,11 +120,85 @@ export class VectorStore {
     }
 
     /**
-     * Save a vector for a chunk
+     * Save a vector for a chunk with its content
      */
-    saveVector(chunkId: string, vector: number[], contentHash: string): void {
-        this.vectors.set(chunkId, { vector, contentHash });
+    saveVector(
+        chunkId: string, 
+        vector: number[], 
+        contentHash: string,
+        content: string,
+        filePath: string,
+        fileLink: string
+    ): void {
+        this.vectors.set(chunkId, { vector, contentHash, content, filePath, fileLink });
         this.isDirty = true;
+    }
+
+    /**
+     * Calculate cosine similarity between two vectors
+     */
+    private cosineSimilarity(a: number[], b: number[]): number {
+        if (a.length !== b.length || a.length === 0) {
+            return 0;
+        }
+
+        let dotProduct = 0;
+        let normA = 0;
+        let normB = 0;
+
+        for (let i = 0; i < a.length; i++) {
+            const aVal = a[i] ?? 0;
+            const bVal = b[i] ?? 0;
+            dotProduct += aVal * bVal;
+            normA += aVal * aVal;
+            normB += bVal * bVal;
+        }
+
+        const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+        if (denominator === 0) {
+            return 0;
+        }
+
+        return dotProduct / denominator;
+    }
+
+    /**
+     * Search for similar vectors using cosine similarity
+     */
+    search(queryVector: number[], limit: number = 5): SearchResult[] {
+        const results: SearchResult[] = [];
+
+        for (const [chunkId, stored] of this.vectors) {
+            // Skip legacy vectors that don't have content metadata
+            if (!stored.content || !stored.filePath) {
+                continue;
+            }
+            
+            const score = this.cosineSimilarity(queryVector, stored.vector);
+            results.push({
+                chunkId,
+                content: stored.content,
+                filePath: stored.filePath,
+                fileLink: stored.fileLink ?? "",
+                score
+            });
+        }
+
+        // Sort by score descending and return top results
+        results.sort((a, b) => b.score - a.score);
+        return results.slice(0, limit);
+    }
+
+    /**
+     * Check if vectors need migration (legacy format without content)
+     */
+    hasLegacyVectors(): boolean {
+        for (const stored of this.vectors.values()) {
+            if (!stored.content || !stored.filePath) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -163,11 +259,13 @@ export class VectorStore {
     }
 
     /**
-     * Clear all vectors
+     * Clear all vectors and save immediately
      */
-    clearAll(): void {
+    async clearAll(): Promise<void> {
         this.vectors.clear();
         this.isDirty = true;
+        await this.save();
+        console.log("Vector store cleared and saved.");
     }
 
     /**

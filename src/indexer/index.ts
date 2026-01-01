@@ -8,7 +8,7 @@ export { ChunkManager } from "./chunk-manager";
 export type { Chunk } from "./chunk-manager";
 
 export { VectorStore } from "./vector-store";
-export type { StoredVector, VectorStoreData } from "./vector-store";
+export type { StoredVector, VectorStoreData, SearchResult } from "./vector-store";
 
 export { EmbeddingManager } from "./embedding-manager";
 export type { EmbeddingManagerConfig, EmbeddingResult } from "./embedding-manager";
