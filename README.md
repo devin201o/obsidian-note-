@@ -1,90 +1,88 @@
-# Obsidian Sample Plugin
+# Obsidian note+
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+A professional, privacy-focused AI assistant for your Obsidian vault. This plugin implements a high-performance Retrieval-Augmented Generation (RAG) pipeline to turn your notes into an interactive, searchable knowledge base.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+---
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+## Overview
 
-## First time developing plugins?
+Obsidian note+ provides a sidebar chatbot that "reads" your vault to answer questions with precision. It combines semantic vector search with keyword-based reranking to ensure accurate retrieval even in large, complex vaults.
 
-Quick starting guide for new plugin devs:
+### Key Features
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+* **Semantic Chat**: Engage in natural language conversations with your notes using advanced embeddings.
+* **Privacy-First Redaction**: Automatic local PII protection; sensitive data like API keys and emails are redacted *before* leaving your machine.
+* **Hybrid Search**: Optimized retrieval pool logic that combines vector similarity with keyword boosting for pinpoint accuracy.
+* **Context Scoping**: A GitHub Copilot-inspired context picker to narrow your search to specific tags, folders, or files.
+* **Smart Citations**: AI responses include standard `[[WikiLinks]]` that are fully clickable and navigate directly to your source notes.
 
-## Releasing new releases
+---
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+## Getting Started
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### Installation
 
-## Adding your plugin to the community plugin list
+1. **Clone or Download**: Place the plugin folder in your vault's `.obsidian/plugins/` directory.
+2. **Install Dependencies**: Open a terminal in the plugin folder and run:
+```bash
+npm install
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
-
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
 ```
 
-If you have multiple URLs, you can also do:
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
+3. **Build**: Compile the TypeScript source into the executable plugin:
+```bash
+npm run build
+
 ```
 
-## API Documentation
 
-See https://docs.obsidian.md
+
+### First-Launch Configuration
+
+1. **Enable**: Go to **Settings > Community Plugins** and toggle on **Obsidian note+**.
+2. **API Key**: Enter your **OpenRouter API Key** in the plugin settings.
+3. **Model Selection**: Choose your preferred LLM (default is `google/gemini-2.5-flash`).
+4. **Initial Indexing**: Open the Command Palette (`Ctrl/Cmd + P`) and run:
+`Obsidian Note+: Rebuild Index`
+This will perform the initial chunking and embedding of your vault.
+
+---
+
+## Commands
+
+| Command | Action |
+| --- | --- |
+| **Open Chatbot** | Opens the interactive chat view in the right sidebar. |
+| **Rebuild Index** | Scans for new/modified files and updates the vector cache incrementally. |
+| **Force Rebuild Index** | Deletes the local `embeddings.json` and re-indexes the entire vault (use this if accuracy drops or logic changes). |
+| **Purge Excluded Chunks** | Instantly removes vectors belonging to folders added to your "Excluded Folders" list. |
+| **Test Search** | Debug tool to see raw similarity scores and retrieved chunks for a specific query. |
+| **Debug: Inspect File Chunks** | Visualizes how the active note is being "seen" and split by the AI. |
+
+---
+
+## How It Works
+
+The plugin follows a rigorous data pipeline to ensure both performance and privacy:
+
+1. **Privacy Scrubbing**: The `PrivacyManager` runs regex patterns to replace sensitive strings with placeholders (e.g., `[REDACTED_API_KEY]`).
+2. **Recursive Chunking**: Notes are split into ~1000 character segments, respecting headers and paragraphs to maintain semantic context.
+3. **Vector Storage**: Embeddings are stored locally in `embeddings.json`. The plugin uses a "Smart Embed" logic to skip files that haven't been modified.
+4. **Hybrid Retrieval**: When you ask a question, the plugin fetches a large pool of results (default 50) and reranks them locally based on keyword matches before sending the best 15 to the AI.
+
+---
+
+## Privacy Notice
+
+This plugin is designed to keep your data as safe as possible.
+
+* **Local Processing**: Chunking, redaction, and reranking happen entirely on your device.
+* **External Access**: Only redacted text chunks and your specific chat queries are sent to OpenRouter.
+* **No Analytics**: This plugin does not track your usage or collect telemetry.
+
+---
+
+## License
+
+Distributed under the MIT License. See `LICENSE` for more information.
