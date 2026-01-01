@@ -36,6 +36,7 @@ export default class HelloWorldPlugin extends Plugin {
 		
 		// Initialize the vault indexer
 		this.indexer = new VaultIndexer(this.app);
+		this.indexer.setExcludedFolders(this.settings.excludedFolders);
 		
 		// Initialize the privacy manager
 		this.privacyManager = new PrivacyManager();
@@ -47,10 +48,12 @@ export default class HelloWorldPlugin extends Plugin {
 			chunkSize: 1000,
 			chunkOverlap: 200
 		});
+		this.chunkManager.setExcludedFolders(this.settings.excludedFolders);
 		
 		// Initialize the vector store
 		this.vectorStore = new VectorStore(this);
 		await this.vectorStore.load();
+		this.vectorStore.setExcludedFolders(this.settings.excludedFolders);
 		
 		// Check for legacy vectors that need migration
 		if (this.vectorStore.hasLegacyVectors()) {
@@ -156,6 +159,15 @@ export default class HelloWorldPlugin extends Plugin {
 			name: 'Debug: Inspect File Chunks',
 			callback: async () => {
 				await this.debugInspectChunks();
+			}
+		});
+
+		// Add command to purge excluded folder vectors
+		this.addCommand({
+			id: 'purge-excluded-vectors',
+			name: 'Purge Excluded Folder Vectors',
+			callback: async () => {
+				await this.purgeExcludedVectors();
 			}
 		});
 
@@ -313,6 +325,26 @@ export default class HelloWorldPlugin extends Plugin {
 		}
 	}
 
+	async purgeExcludedVectors() {
+		if (!this.settings.excludedFolders || this.settings.excludedFolders.length === 0) {
+			new Notice("No excluded folders configured. Add folders in Settings → Folder Exclusion.");
+			return;
+		}
+
+		const notice = new Notice("Purging excluded folder vectors...", 0);
+		try {
+			const deletedCount = this.vectorStore.purgeExcludedVectors();
+			await this.vectorStore.save();
+			notice.hide();
+			new Notice(`Purged ${deletedCount} vectors from excluded folders.`);
+			console.log(`Purged ${deletedCount} vectors from excluded folders:`, this.settings.excludedFolders);
+		} catch (error) {
+			notice.hide();
+			new Notice("Error purging excluded vectors. Check console for details.");
+			console.error("Purge excluded vectors error:", error);
+		}
+	}
+
 	async debugInspectChunks() {
 		// Get the currently active file
 		const activeFile = this.app.workspace.getActiveFile();
@@ -423,6 +455,16 @@ export default class HelloWorldPlugin extends Plugin {
 		if (this.privacyManager) {
 			this.privacyManager.setEnabled(this.settings.enableRedaction);
 			this.privacyManager.setCustomPatterns(this.settings.customRedactionPatterns);
+		}
+		// Update excluded folders on all components
+		if (this.indexer) {
+			this.indexer.setExcludedFolders(this.settings.excludedFolders);
+		}
+		if (this.chunkManager) {
+			this.chunkManager.setExcludedFolders(this.settings.excludedFolders);
+		}
+		if (this.vectorStore) {
+			this.vectorStore.setExcludedFolders(this.settings.excludedFolders);
 		}
 	}
 }

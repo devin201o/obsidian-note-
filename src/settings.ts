@@ -18,6 +18,7 @@ export interface MyPluginSettings {
     customRedactionPatterns: string;
     retrievalPoolSize: number;
     maxContextChunks: number;
+    excludedFolders: string[];
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -29,7 +30,8 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     enableRedaction: true,
     customRedactionPatterns: '',
     retrievalPoolSize: 50,
-    maxContextChunks: 15
+    maxContextChunks: 15,
+    excludedFolders: []
 }
 
 /**
@@ -212,6 +214,28 @@ export class SampleSettingTab extends PluginSettingTab {
 					this.plugin.settings.indexMarkdownOnly = value;
 					await this.plugin.saveSettings();
 				}));
+
+		// ===== Folder Exclusion Section =====
+		containerEl.createEl("h3", { text: "Folder Exclusion" });
+
+		new Setting(containerEl)
+			.setName('Excluded folders')
+			.setDesc('Folders to exclude from indexing and search (one folder path per line). Example: Calendar, Archives/Old')
+			.addTextArea(textArea => {
+				textArea
+					.setPlaceholder('Calendar\nArchives\nTemplates')
+					.setValue(this.plugin.settings.excludedFolders.join('\n'))
+					.onChange(async (value) => {
+						this.plugin.settings.excludedFolders = value
+							.split('\n')
+							.map(f => f.trim())
+							.filter(f => f.length > 0);
+						await this.plugin.saveSettings();
+					});
+				textArea.inputEl.rows = 4;
+				textArea.inputEl.cols = 40;
+				return textArea;
+			});
 
 		// ===== Privacy & Redaction Section =====
 		containerEl.createEl("h3", { text: "Privacy & Redaction" });

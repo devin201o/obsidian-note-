@@ -18,9 +18,36 @@ export class VaultIndexer {
     private app: App;
     private indexedFiles: IndexedFile[] = [];
     private lastIndexed: Date | null = null;
+    /** Folders to exclude from indexing */
+    private excludedFolders: string[] = [];
 
     constructor(app: App) {
         this.app = app;
+    }
+
+    /**
+     * Set the list of excluded folders
+     */
+    setExcludedFolders(folders: string[]): void {
+        this.excludedFolders = folders;
+    }
+
+    /**
+     * Check if a file path is in an excluded folder
+     */
+    private isExcluded(filePath: string): boolean {
+        if (!this.excludedFolders || this.excludedFolders.length === 0) {
+            return false;
+        }
+
+        for (const folder of this.excludedFolders) {
+            if (!folder) continue;
+            const normalizedFolder = folder.endsWith("/") ? folder : folder + "/";
+            if (filePath.startsWith(normalizedFolder) || filePath.startsWith(folder + "/")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -31,6 +58,10 @@ export class VaultIndexer {
         const files = this.app.vault.getMarkdownFiles();
 
         for (const file of files) {
+            // Skip files in excluded folders
+            if (this.isExcluded(file.path)) {
+                continue;
+            }
             const indexedFile = await this.indexFile(file);
             this.indexedFiles.push(indexedFile);
         }
@@ -47,6 +78,10 @@ export class VaultIndexer {
         const files = this.app.vault.getFiles();
 
         for (const file of files) {
+            // Skip files in excluded folders
+            if (this.isExcluded(file.path)) {
+                continue;
+            }
             const indexedFile = await this.indexFile(file);
             this.indexedFiles.push(indexedFile);
         }

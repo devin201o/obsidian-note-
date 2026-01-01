@@ -28,6 +28,8 @@ export class ChunkManager {
     private privacyManager: PrivacyManager;
     /** Map of file path to array of chunks */
     private chunksByFile: Map<string, Chunk[]> = new Map();
+    /** Folders to exclude from processing */
+    private excludedFolders: string[] = [];
 
     constructor(app: App, privacyManager: PrivacyManager, splitterConfig?: Partial<TextSplitterConfig>) {
         this.app = app;
@@ -36,11 +38,23 @@ export class ChunkManager {
     }
 
     /**
+     * Set the list of excluded folders
+     */
+    setExcludedFolders(folders: string[]): void {
+        this.excludedFolders = folders;
+    }
+
+    /**
      * Process a file: read its content, redact sensitive data, split into chunks, and store them
      */
     async processFile(file: TFile): Promise<Chunk[]> {
         // Only process markdown files
         if (file.extension !== "md") {
+            return [];
+        }
+
+        // Skip files in excluded folders
+        if (PrivacyManager.isFolderExcluded(file.path, this.excludedFolders)) {
             return [];
         }
 
