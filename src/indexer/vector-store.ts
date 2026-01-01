@@ -259,11 +259,13 @@ export class VectorStore {
     }
 
     /**
-     * Clear all vectors
+     * Clear all vectors and save immediately
      */
-    clearAll(): void {
+    async clearAll(): Promise<void> {
         this.vectors.clear();
         this.isDirty = true;
+        await this.save();
+        console.log("Vector store cleared and saved.");
     }
 
     /**

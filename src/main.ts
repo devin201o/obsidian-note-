@@ -5,6 +5,7 @@ import { VaultIndexer } from "./indexer";
 import { ChunkManager } from "./indexer/chunk-manager";
 import { VectorStore } from "./indexer/vector-store";
 import { EmbeddingManager } from "./indexer/embedding-manager";
+import { RAGEngine } from "./chat/rag-engine";
 
 export default class HelloWorldPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -12,6 +13,7 @@ export default class HelloWorldPlugin extends Plugin {
 	chunkManager: ChunkManager;
 	vectorStore: VectorStore;
 	embeddingManager: EmbeddingManager;
+	ragEngine: RAGEngine;
 	
 	// Debounced update function for file modifications
 	private debouncedUpdateFile = debounce(
@@ -57,6 +59,10 @@ export default class HelloWorldPlugin extends Plugin {
 		);
 		this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
 		
+		// Initialize the RAG engine
+		this.ragEngine = new RAGEngine(this.embeddingManager);
+		this.ragEngine.setApiKey(this.settings.openRouterApiKey);
+		
 		// Index the vault on startup
 		await this.indexVault();
 		
@@ -95,7 +101,7 @@ export default class HelloWorldPlugin extends Plugin {
 		// Register the chatbot view type
 		this.registerView(
 			VIEW_TYPE_CHATBOT,
-			(leaf) => new ChatbotView(leaf, this) // Pass plugin instance
+			(leaf) => new ChatbotView(leaf, this, this.ragEngine)
 		);
 
 		// Add ribbon icon to toggle chatbot
@@ -123,6 +129,24 @@ export default class HelloWorldPlugin extends Plugin {
 			callback: async () => {
 				await this.rebuildChunkIndex();
 				await this.rebuildEmbeddings();
+			}
+		});
+
+		// Add command to force rebuild (clears cache first)
+		this.addCommand({
+			id: 'force-rebuild-index',
+			name: 'Force Rebuild Index (Clear Cache)',
+			callback: async () => {
+				await this.forceRebuildIndex();
+			}
+		});
+
+		// Add debug command to inspect chunks for current file
+		this.addCommand({
+			id: 'debug-inspect-chunks',
+			name: 'Debug: Inspect File Chunks',
+			callback: async () => {
+				await this.debugInspectChunks();
 			}
 		});
 
@@ -260,6 +284,73 @@ export default class HelloWorldPlugin extends Plugin {
 		}
 	}
 
+	async forceRebuildIndex() {
+		try {
+			// Step 1: Clear vector cache
+			new Notice("Clearing vector cache...");
+			await this.vectorStore.clearAll();
+			console.log("Vector cache cleared.");
+
+			// Step 2: Rebuild chunks
+			await this.rebuildChunkIndex();
+
+			// Step 3: Rebuild embeddings (will fetch all since cache is empty)
+			await this.rebuildEmbeddings();
+
+			new Notice("Force rebuild complete!");
+		} catch (error) {
+			new Notice("Force rebuild failed. Check console for details.");
+			console.error("Force rebuild error:", error);
+		}
+	}
+
+	async debugInspectChunks() {
+		// Get the currently active file
+		const activeFile = this.app.workspace.getActiveFile();
+		
+		if (!activeFile) {
+			new Notice("No active file. Please open a markdown file.");
+			return;
+		}
+
+		if (activeFile.extension !== "md") {
+			new Notice("Active file is not a markdown file.");
+			return;
+		}
+
+		// Get chunks for this file
+		const chunks = this.chunkManager.getChunksForFile(activeFile.path);
+
+		if (chunks.length === 0) {
+			new Notice(`No chunks found for ${activeFile.name}. Try running 'Rebuild Index' first.`);
+			console.log(`No chunks found for: ${activeFile.path}`);
+			return;
+		}
+
+		new Notice(`Found ${chunks.length} chunks. Check console for details.`);
+
+		console.log("=".repeat(60));
+		console.log(`DEBUG: Chunks for file: ${activeFile.path}`);
+		console.log(`Total chunks: ${chunks.length}`);
+		console.log("=".repeat(60));
+
+		chunks.forEach((chunk, index) => {
+			console.log(`\n--- Chunk [${index}] ---`);
+			console.log(`ID: ${chunk.id}`);
+			console.log(`FileLink: ${chunk.fileLink}`);
+			console.log(`Length: ${chunk.content.length} characters`);
+			console.log(`Content Preview (first 300 chars):`);
+			console.log(chunk.content.substring(0, 300));
+			if (chunk.content.length > 300) {
+				console.log("...[truncated]");
+			}
+		});
+
+		console.log("\n" + "=".repeat(60));
+		console.log("END DEBUG OUTPUT");
+		console.log("=".repeat(60));
+	}
+
 	async testSearch() {
 		if (!this.settings.openRouterApiKey) {
 			new Notice("API key not set. Please configure it in settings.");
@@ -311,9 +402,12 @@ export default class HelloWorldPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		// Update embedding manager with new API key if it changes
+		// Update embedding manager and RAG engine with new API key if it changes
 		if (this.embeddingManager) {
 			this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
+		}
+		if (this.ragEngine) {
+			this.ragEngine.setApiKey(this.settings.openRouterApiKey);
 		}
 	}
 }
