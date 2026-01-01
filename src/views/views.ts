@@ -1,9 +1,19 @@
-import { ItemView, WorkspaceLeaf, Notice, Modal, App, MarkdownRenderer, Component } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Modal, App, MarkdownRenderer, Component, Menu, TFile, TFolder, setIcon } from "obsidian";
 import type MyPlugin from "../main";
 import type { ChatMessage } from "../settings";
 import type { RAGEngine } from "../chat/rag-engine";
+import type { SearchOptions } from "../indexer/vector-store";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
+
+/**
+ * Context item for scoping RAG search
+ */
+interface ContextItem {
+    type: "file" | "folder" | "tag";
+    value: string;
+    displayName: string;
+}
 
 export class ChatbotView extends ItemView {
     private plugin: MyPlugin;
@@ -12,6 +22,10 @@ export class ChatbotView extends ItemView {
     private inputEl: HTMLTextAreaElement | null = null;
     private sendButton: HTMLButtonElement | null = null;
     private renderComponent: Component;
+    private contextPillsEl: HTMLElement | null = null;
+    private selectedContexts: ContextItem[] = [];
+    private contextExpanded: boolean = false;
+    private readonly MAX_VISIBLE_PILLS = 3;
 
     constructor(leaf: WorkspaceLeaf, plugin: MyPlugin, ragEngine: RAGEngine) {
         super(leaf);
@@ -72,7 +86,18 @@ export class ChatbotView extends ItemView {
         }
         this.scrollToBottom();
 
+        // Context pills container (above input)
+        this.contextPillsEl = container.createDiv({ cls: "chat-context-pills" });
+
         const inputContainer = container.createDiv({ cls: "chat-input-container" });
+        
+        // Context picker button
+        const contextButton = inputContainer.createEl("button", {
+            cls: "chat-context-button",
+            attr: { "aria-label": "Add context" }
+        });
+        setIcon(contextButton, "paperclip");
+        contextButton.addEventListener("click", (e) => this.showContextMenu(e));
         
         // Use textarea for multi-line input
         this.inputEl = inputContainer.createEl("textarea", { 
@@ -142,8 +167,11 @@ export class ChatbotView extends ItemView {
         const typingIndicator = this.showTypingIndicator();
 
         try {
-            // Send to RAG engine
-            const response = await this.ragEngine.ask(content, conversationHistory);
+            // Build search options from selected contexts
+            const searchOptions = this.buildSearchOptions();
+            
+            // Send to RAG engine with context filters
+            const response = await this.ragEngine.ask(content, conversationHistory, searchOptions);
 
             // Remove typing indicator
             typingIndicator.remove();
@@ -232,6 +260,229 @@ export class ChatbotView extends ItemView {
         });
     }
 
+    // ===== Context Picker Methods =====
+
+    private showContextMenu(e: MouseEvent) {
+        const menu = new Menu();
+
+        menu.addItem((item) => {
+            item.setTitle("📄 Add File...")
+                .onClick(() => this.showFilePickerModal());
+        });
+
+        menu.addItem((item) => {
+            item.setTitle("📁 Add Folder...")
+                .onClick(() => this.showFolderPickerMenu(e));
+        });
+
+        menu.addItem((item) => {
+            item.setTitle("🏷️ Add Tag...")
+                .onClick(() => this.showTagPickerMenu(e));
+        });
+
+        if (this.selectedContexts.length > 0) {
+            menu.addSeparator();
+            menu.addItem((item) => {
+                item.setTitle("Clear all context")
+                    .onClick(() => {
+                        this.selectedContexts = [];
+                        this.renderContextPills();
+                    });
+            });
+        }
+
+        menu.showAtMouseEvent(e);
+    }
+
+    private showFilePickerModal() {
+        const files = this.app.vault.getMarkdownFiles();
+        const modal = new FilePickerModal(this.app, files, (file) => {
+            this.addContext({
+                type: "file",
+                value: file.path,
+                displayName: file.basename
+            });
+        });
+        modal.open();
+    }
+
+    private showFolderPickerMenu(e: MouseEvent) {
+        const menu = new Menu();
+        const folders = this.getAllFolders();
+
+        if (folders.length === 0) {
+            menu.addItem((item) => item.setTitle("No folders found").setDisabled(true));
+        } else {
+            for (const folder of folders.slice(0, 20)) { // Limit to 20 folders
+                menu.addItem((item) => {
+                    item.setTitle(folder)
+                        .onClick(() => {
+                            this.addContext({
+                                type: "folder",
+                                value: folder,
+                                displayName: folder
+                            });
+                        });
+                });
+            }
+        }
+
+        menu.showAtMouseEvent(e);
+    }
+
+    private showTagPickerMenu(e: MouseEvent) {
+        const menu = new Menu();
+        const tags = this.getAllTags();
+
+        if (tags.length === 0) {
+            menu.addItem((item) => item.setTitle("No tags found").setDisabled(true));
+        } else {
+            for (const tag of tags.slice(0, 20)) { // Limit to 20 tags
+                menu.addItem((item) => {
+                    item.setTitle(tag)
+                        .onClick(() => {
+                            this.addContext({
+                                type: "tag",
+                                value: tag,
+                                displayName: tag
+                            });
+                        });
+                });
+            }
+        }
+
+        menu.showAtMouseEvent(e);
+    }
+
+    private getAllFolders(): string[] {
+        const folders: string[] = [];
+        const rootFolder = this.app.vault.getRoot();
+        
+        const traverse = (folder: TFolder) => {
+            for (const child of folder.children) {
+                if (child instanceof TFolder) {
+                    folders.push(child.path);
+                    traverse(child);
+                }
+            }
+        };
+        
+        traverse(rootFolder);
+        return folders.sort();
+    }
+
+    private getAllTags(): string[] {
+        const tagSet = new Set<string>();
+        const files = this.app.vault.getMarkdownFiles();
+        
+        for (const file of files) {
+            const cache = this.app.metadataCache.getFileCache(file);
+            if (cache?.tags) {
+                for (const tag of cache.tags) {
+                    tagSet.add(tag.tag);
+                }
+            }
+            // Also check frontmatter tags
+            if (cache?.frontmatter?.tags) {
+                const fmTags = Array.isArray(cache.frontmatter.tags) 
+                    ? cache.frontmatter.tags 
+                    : [cache.frontmatter.tags];
+                for (const tag of fmTags) {
+                    tagSet.add(`#${tag}`);
+                }
+            }
+        }
+        
+        return Array.from(tagSet).sort();
+    }
+
+    private addContext(item: ContextItem) {
+        // Don't add duplicates
+        const exists = this.selectedContexts.some(
+            c => c.type === item.type && c.value === item.value
+        );
+        if (!exists) {
+            this.selectedContexts.push(item);
+            this.renderContextPills();
+        }
+    }
+
+    private removeContext(index: number) {
+        this.selectedContexts.splice(index, 1);
+        this.renderContextPills();
+    }
+
+    private renderContextPills() {
+        if (!this.contextPillsEl) return;
+        this.contextPillsEl.empty();
+
+        if (this.selectedContexts.length === 0) {
+            this.contextPillsEl.removeClass("expanded");
+            return;
+        }
+
+        // Toggle expanded class
+        if (this.contextExpanded) {
+            this.contextPillsEl.addClass("expanded");
+        } else {
+            this.contextPillsEl.removeClass("expanded");
+        }
+
+        const totalCount = this.selectedContexts.length;
+        const showAll = this.contextExpanded || totalCount <= this.MAX_VISIBLE_PILLS;
+        const visibleContexts = showAll ? this.selectedContexts : this.selectedContexts.slice(0, this.MAX_VISIBLE_PILLS);
+
+        for (const ctx of visibleContexts) {
+            const pill = this.contextPillsEl.createDiv({ cls: "chat-context-pill" });
+            pill.setAttribute("data-type", ctx.type);
+            
+            const icon = ctx.type === "file" ? "📄" : ctx.type === "folder" ? "📁" : "🏷️";
+            pill.createSpan({ cls: "chat-context-pill-text", text: `${icon} ${ctx.displayName}` });
+            
+            const removeBtn = pill.createSpan({ cls: "chat-context-pill-remove", text: "×" });
+            const index = this.selectedContexts.indexOf(ctx);
+            removeBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.removeContext(index);
+            });
+        }
+
+        // Show expand/collapse button if there are hidden pills
+        if (totalCount > this.MAX_VISIBLE_PILLS) {
+            const expandBtn = this.contextPillsEl.createSpan({ cls: "chat-context-expand" });
+            if (this.contextExpanded) {
+                expandBtn.textContent = "▲ Less";
+            } else {
+                const hiddenCount = totalCount - this.MAX_VISIBLE_PILLS;
+                expandBtn.textContent = `+${hiddenCount} more...`;
+            }
+            expandBtn.addEventListener("click", () => {
+                this.contextExpanded = !this.contextExpanded;
+                this.renderContextPills();
+            });
+        }
+    }
+
+    private buildSearchOptions(): SearchOptions | undefined {
+        if (this.selectedContexts.length === 0) {
+            return undefined;
+        }
+
+        const options: SearchOptions = {};
+        
+        const files = this.selectedContexts.filter(c => c.type === "file").map(c => c.value);
+        const folders = this.selectedContexts.filter(c => c.type === "folder").map(c => c.value);
+        const tags = this.selectedContexts.filter(c => c.type === "tag").map(c => c.value);
+
+        if (files.length > 0) options.files = files;
+        if (folders.length > 0) options.folders = folders;
+        if (tags.length > 0) options.tags = tags;
+
+        return options;
+    }
+
+    // ===== End Context Picker Methods =====
+
     private async resetConversation() {
         // Show confirmation dialog
         const confirmed = await this.showConfirmDialog(
@@ -302,6 +553,79 @@ class ConfirmModal extends Modal {
             this.resolve(true);
             this.close();
         });
+    }
+
+    onClose() {
+        this.contentEl.empty();
+    }
+}
+
+/**
+ * Modal for picking a file from the vault
+ */
+class FilePickerModal extends Modal {
+    private files: TFile[];
+    private onSelect: (file: TFile) => void;
+    private searchQuery: string = "";
+    private listEl: HTMLElement | null = null;
+
+    constructor(app: App, files: TFile[], onSelect: (file: TFile) => void) {
+        super(app);
+        this.files = files;
+        this.onSelect = onSelect;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass("file-picker-modal");
+
+        contentEl.createEl("h3", { text: "Select a file" });
+
+        // Search input
+        const searchInput = contentEl.createEl("input", {
+            type: "text",
+            placeholder: "Search files...",
+            cls: "file-picker-search"
+        });
+        searchInput.addEventListener("input", (e) => {
+            this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
+            this.renderList();
+        });
+        searchInput.focus();
+
+        this.listEl = contentEl.createDiv({ cls: "file-picker-list" });
+        this.renderList();
+    }
+
+    private renderList() {
+        if (!this.listEl) return;
+        this.listEl.empty();
+
+        const filtered = this.searchQuery
+            ? this.files.filter(f => 
+                f.basename.toLowerCase().includes(this.searchQuery) ||
+                f.path.toLowerCase().includes(this.searchQuery)
+            )
+            : this.files;
+
+        const toShow = filtered.slice(0, 50); // Limit to 50 results
+
+        if (toShow.length === 0) {
+            this.listEl.createEl("p", { text: "No files found", cls: "file-picker-empty" });
+            return;
+        }
+
+        for (const file of toShow) {
+            const item = this.listEl.createDiv({ cls: "file-picker-item" });
+            item.createSpan({ text: file.basename, cls: "file-picker-name" });
+            item.createSpan({ text: file.parent?.path ?? "", cls: "file-picker-path" });
+            
+            item.addEventListener("click", () => {
+                this.onSelect(file);
+                this.close();
+            });
+        }
     }
 
     onClose() {

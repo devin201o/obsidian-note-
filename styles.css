@@ -362,3 +362,193 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-muted);
     font-size: 0.85em;
 }
+
+/* Context Picker Styles */
+.chat-context-pills {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    align-items: center;
+    margin-bottom: 4px;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.chat-context-pills:empty {
+    display: none;
+    margin-bottom: 0;
+}
+
+.chat-context-pills.expanded {
+    flex-wrap: wrap;
+    overflow: visible;
+}
+
+.chat-context-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.8em;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    max-width: 150px;
+    flex-shrink: 0;
+    line-height: 1.2;
+}
+
+.chat-context-pill[data-type="file"] {
+    background-color: var(--color-blue-rgb, rgba(59, 130, 246, 0.15));
+    border-color: var(--color-blue, #3b82f6);
+}
+
+.chat-context-pill[data-type="folder"] {
+    background-color: var(--color-yellow-rgb, rgba(234, 179, 8, 0.15));
+    border-color: var(--color-yellow, #eab308);
+}
+
+.chat-context-pill[data-type="tag"] {
+    background-color: var(--color-green-rgb, rgba(34, 197, 94, 0.15));
+    border-color: var(--color-green, #22c55e);
+}
+
+.chat-context-pill-icon {
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.chat-context-pill-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-context-pill-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0.6;
+    flex-shrink: 0;
+    color: var(--text-normal);
+    font-size: 12px;
+    line-height: 1;
+}
+
+.chat-context-pill-remove:hover {
+    opacity: 1;
+    background-color: var(--background-modifier-hover);
+}
+
+.chat-context-expand {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.8em;
+    background-color: var(--background-modifier-hover);
+    border: 1px solid var(--background-modifier-border);
+    cursor: pointer;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.chat-context-expand:hover {
+    background-color: var(--background-modifier-active-hover);
+    color: var(--text-normal);
+}
+
+.chat-context-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.chat-context-button:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+    border-color: var(--interactive-accent);
+}
+
+/* File Picker Modal Styles */
+.file-picker-modal {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 400px;
+}
+
+.file-picker-search {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 14px;
+}
+
+.file-picker-search:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+.file-picker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+    max-height: 320px;
+    padding-right: 4px;
+}
+
+.file-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-normal);
+    font-size: 13px;
+    background-color: transparent;
+    transition: background-color 0.1s ease;
+}
+
+.file-picker-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.file-picker-item-icon {
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.file-picker-item-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-picker-item-path {
+    color: var(--text-muted);
+    font-size: 0.85em;
+    margin-left: auto;
+    flex-shrink: 0;
+}

@@ -1,4 +1,16 @@
-import { Plugin } from "obsidian";
+import { App, Plugin } from "obsidian";
+
+/**
+ * Options for filtering search results
+ */
+export interface SearchOptions {
+    /** Specific file paths to include */
+    files?: string[];
+    /** Folder path prefixes to include */
+    folders?: string[];
+    /** Tags to include (will check file metadata) */
+    tags?: string[];
+}
 
 /**
  * Stored vector data for a chunk
@@ -49,11 +61,13 @@ const VECTOR_STORE_FILE = "embeddings.json";
  */
 export class VectorStore {
     private plugin: Plugin;
+    private app: App;
     private vectors: Map<string, StoredVector> = new Map();
     private isDirty: boolean = false;
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
+        this.app = plugin.app;
     }
 
     /**
@@ -163,14 +177,85 @@ export class VectorStore {
     }
 
     /**
-     * Search for similar vectors using cosine similarity
+     * Check if a file matches the search options filter
      */
-    search(queryVector: number[], limit: number = 5): SearchResult[] {
+    private matchesFilter(filePath: string, options?: SearchOptions): boolean {
+        if (!options) {
+            return true; // No filter, include all
+        }
+
+        const hasFileFilter = options.files && options.files.length > 0;
+        const hasFolderFilter = options.folders && options.folders.length > 0;
+        const hasTagFilter = options.tags && options.tags.length > 0;
+
+        // If no filters specified, include all
+        if (!hasFileFilter && !hasFolderFilter && !hasTagFilter) {
+            return true;
+        }
+
+        // Check file filter
+        if (hasFileFilter && options.files!.includes(filePath)) {
+            return true;
+        }
+
+        // Check folder filter
+        if (hasFolderFilter) {
+            for (const folder of options.folders!) {
+                if (filePath.startsWith(folder + "/") || filePath.startsWith(folder)) {
+                    return true;
+                }
+            }
+        }
+
+        // Check tag filter using MetadataCache
+        if (hasTagFilter) {
+            const file = this.app.vault.getAbstractFileByPath(filePath);
+            if (file) {
+                const cache = this.app.metadataCache.getCache(filePath);
+                if (cache?.tags) {
+                    const fileTags = cache.tags.map(t => t.tag.toLowerCase());
+                    for (const tag of options.tags!) {
+                        const normalizedTag = tag.startsWith("#") ? tag.toLowerCase() : `#${tag.toLowerCase()}`;
+                        if (fileTags.includes(normalizedTag)) {
+                            return true;
+                        }
+                    }
+                }
+                // Also check frontmatter tags
+                if (cache?.frontmatter?.tags) {
+                    const fmTags: string[] = Array.isArray(cache.frontmatter.tags) 
+                        ? cache.frontmatter.tags 
+                        : [cache.frontmatter.tags];
+                    for (const tag of options.tags!) {
+                        const normalizedTag = tag.startsWith("#") ? tag.slice(1).toLowerCase() : tag.toLowerCase();
+                        if (fmTags.map(t => t.toLowerCase()).includes(normalizedTag)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Search for similar vectors using cosine similarity
+     * @param queryVector The query embedding vector
+     * @param limit Maximum number of results to return
+     * @param options Optional filters for files, folders, or tags
+     */
+    search(queryVector: number[], limit: number = 5, options?: SearchOptions): SearchResult[] {
         const results: SearchResult[] = [];
 
         for (const [chunkId, stored] of this.vectors) {
             // Skip legacy vectors that don't have content metadata
             if (!stored.content || !stored.filePath) {
+                continue;
+            }
+
+            // Apply search filters
+            if (!this.matchesFilter(stored.filePath, options)) {
                 continue;
             }
             
