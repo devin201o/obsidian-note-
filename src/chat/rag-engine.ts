@@ -1,4 +1,5 @@
 import { EmbeddingManager } from "../indexer/embedding-manager";
+import { SearchOptions } from "../indexer/vector-store";
 import { sendChatMessage } from "../llm/openrouter";
 
 /**
@@ -32,21 +33,23 @@ export class RAGEngine {
      * Ask a question and get a RAG-augmented response
      * @param userQuery The user's question
      * @param conversationHistory Previous messages for context
+     * @param searchOptions Optional filters for files, folders, or tags
      * @returns The LLM's response
      */
     async ask(
         userQuery: string,
-        conversationHistory: Array<{ role: "user" | "assistant"; content: string }> = []
+        conversationHistory: Array<{ role: "user" | "assistant"; content: string }> = [],
+        searchOptions?: SearchOptions
     ): Promise<string> {
         if (!this.apiKey) {
             return "Error: API key not set. Please configure it in Settings → obsidian note+.";
         }
 
-        // Step 1: Retrieve relevant chunks
-        const searchResults = await this.embeddingManager.search(userQuery, 5);
+        // Step 1: Retrieve relevant chunks with optional filters
+        const searchResults = await this.embeddingManager.search(userQuery, 5, searchOptions);
 
         // Step 2: Build the system prompt with context
-        const systemPrompt = this.buildSystemPrompt(searchResults);
+        const systemPrompt = this.buildSystemPrompt(searchResults, searchOptions);
 
         // Step 3: Build messages array
         const messages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
@@ -75,9 +78,10 @@ export class RAGEngine {
      * Build the system prompt with retrieved context
      */
     private buildSystemPrompt(
-        searchResults: Array<{ chunkId: string; content: string; filePath: string; fileLink: string; score: number }>
+        searchResults: Array<{ chunkId: string; content: string; filePath: string; fileLink: string; score: number }>,
+        searchOptions?: SearchOptions
     ): string {
-        const basePrompt = `You are an Obsidian assistant. Answer the user's question based on the context provided from their notes.
+        let basePrompt = `You are an Obsidian assistant. Answer the user's question based on the context provided from their notes.
 
 CRITICAL INSTRUCTIONS:
 1. You MUST cite your sources using the exact WikiLink format provided (e.g., [[Note Name]]).
@@ -85,6 +89,23 @@ CRITICAL INSTRUCTIONS:
 3. When referencing information, always mention where it came from using the WikiLink.
 4. If the context doesn't contain relevant information, say so honestly.
 5. Be concise but thorough in your answers.`;
+
+        // Add context scope information if filters are applied
+        if (searchOptions) {
+            const scopeParts: string[] = [];
+            if (searchOptions.files && searchOptions.files.length > 0) {
+                scopeParts.push(`files: ${searchOptions.files.map(f => f.split("/").pop()).join(", ")}`);
+            }
+            if (searchOptions.folders && searchOptions.folders.length > 0) {
+                scopeParts.push(`folders: ${searchOptions.folders.join(", ")}`);
+            }
+            if (searchOptions.tags && searchOptions.tags.length > 0) {
+                scopeParts.push(`tags: ${searchOptions.tags.join(", ")}`);
+            }
+            if (scopeParts.length > 0) {
+                basePrompt += `\n\nIMPORTANT: The user has explicitly selected specific context to focus on (${scopeParts.join("; ")}). Prioritize information from these sources.`;
+            }
+        }
 
         if (searchResults.length === 0) {
             return `${basePrompt}

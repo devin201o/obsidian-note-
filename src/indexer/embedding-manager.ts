@@ -1,6 +1,6 @@
 import { Notice } from "obsidian";
 import { Chunk, ChunkManager } from "./chunk-manager";
-import { VectorStore } from "./vector-store";
+import { VectorStore, SearchOptions } from "./vector-store";
 import { getEmbeddings } from "../llm/openrouter";
 
 /**
@@ -289,17 +289,21 @@ export class EmbeddingManager {
 
     /**
      * Search for similar chunks using the VectorStore search
+     * @param queryText The text to search for
+     * @param limit Maximum number of results
+     * @param options Optional filters for files, folders, or tags
      */
     async search(
         queryText: string,
-        limit: number = 5
+        limit: number = 5,
+        options?: SearchOptions
     ): Promise<Array<{ chunkId: string; content: string; filePath: string; fileLink: string; score: number }>> {
         const queryVector = await this.getQueryEmbedding(queryText);
         if (!queryVector) {
             return [];
         }
 
-        return this.vectorStore.search(queryVector, limit);
+        return this.vectorStore.search(queryVector, limit, options);
     }
 
     /**
