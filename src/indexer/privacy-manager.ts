@@ -16,29 +16,30 @@ interface RedactionPattern {
  * Default patterns for common sensitive data
  */
 const DEFAULT_PATTERNS: RedactionPattern[] = [
-    // OpenAI API keys (sk-...) and GitHub Personal Access Tokens (ghp_...)
+    // OpenAI API keys (Handle both legacy sk- and new sk-proj- formats)
     {
-        pattern: /(sk-[a-zA-Z0-9]{32,})|(ghp_[a-zA-Z0-9]{30,})/g,
+        // Matches sk- followed by 20+ chars (alphanumeric, underscores, hyphens)
+        pattern: /sk-[a-zA-Z0-9\-_]{20,}/g, 
         replacement: "[REDACTED_API_KEY]",
-        description: "OpenAI/GitHub API keys"
+        description: "OpenAI API keys (Standard & Project)"
     },
-    // OpenRouter API keys (sk-or-...)
+    // GitHub Personal Access Tokens (ghp_, gho_, etc)
     {
-        pattern: /sk-or-[a-zA-Z0-9-]{30,}/g,
+        pattern: /(ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{20,}/g,
+        replacement: "[REDACTED_GITHUB_TOKEN]",
+        description: "GitHub Tokens"
+    },
+    // OpenRouter API keys
+    {
+        pattern: /sk-or-[a-zA-Z0-9\-_]{30,}/g,
         replacement: "[REDACTED_API_KEY]",
         description: "OpenRouter API keys"
     },
-    // AWS Access Keys
+    // AWS Access Keys (Standard AKIA...)
     {
-        pattern: /AKIA[0-9A-Z]{16}/g,
+        pattern: /(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])/g,
         replacement: "[REDACTED_AWS_KEY]",
         description: "AWS Access Keys"
-    },
-    // AWS Secret Keys (40 char base64-like strings after aws_secret or similar context)
-    {
-        pattern: /(?:aws_secret_access_key|secret_key)["'\s:=]+([A-Za-z0-9+/]{40})/gi,
-        replacement: "$1[REDACTED_AWS_SECRET]",
-        description: "AWS Secret Keys"
     },
     // Email addresses
     {
@@ -46,29 +47,17 @@ const DEFAULT_PATTERNS: RedactionPattern[] = [
         replacement: "[REDACTED_EMAIL]",
         description: "Email addresses"
     },
-    // RSA/OpenSSH Private Keys
+    // Private Keys
     {
         pattern: /-{5}BEGIN\s+(RSA|OPENSSH|DSA|EC|PGP)\s+PRIVATE\s+KEY-{5}[\s\S]*?-{5}END\s+\1\s+PRIVATE\s+KEY-{5}/g,
         replacement: "[REDACTED_PRIVATE_KEY]",
-        description: "Private keys (RSA, OpenSSH, DSA, EC, PGP)"
+        description: "Private keys"
     },
-    // Bearer tokens in headers
+    // Generic "api_key = xyz" patterns
     {
-        pattern: /Bearer\s+[a-zA-Z0-9_-]{20,}/gi,
-        replacement: "Bearer [REDACTED_TOKEN]",
-        description: "Bearer tokens"
-    },
-    // Generic API keys in common formats (api_key=..., apiKey: "...", etc.)
-    {
-        pattern: /(?:api[_-]?key|apikey|api[_-]?secret|api[_-]?token)["'\s:=]+["']?([a-zA-Z0-9_-]{20,})["']?/gi,
-        replacement: "$1[REDACTED_API_KEY]",
-        description: "Generic API keys"
-    },
-    // Password fields
-    {
-        pattern: /(?:password|passwd|pwd)["'\s:=]+["']?([^\s"']{8,})["']?/gi,
-        replacement: "$1[REDACTED_PASSWORD]",
-        description: "Passwords"
+        pattern: /(?:api[_-]?key|apikey|secret)["'\s:=]+["']?([a-zA-Z0-9\-_]{20,})["']?/gi,
+        replacement: "[REDACTED_GENERIC_SECRET]",
+        description: "Generic API Key assignments"
     }
 ];
 
