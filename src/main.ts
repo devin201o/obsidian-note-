@@ -1,12 +1,20 @@
 import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
 import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
 import { ChatbotView, VIEW_TYPE_CHATBOT } from "./views/views";
+import { VaultIndexer } from "./indexer";
 
 export default class HelloWorldPlugin extends Plugin {
 	settings: MyPluginSettings;
+	indexer: VaultIndexer;
 
 	async onload() {
-		await this.loadSettings(); // Add this line to load settings on startup
+		await this.loadSettings();
+		
+		// Initialize the vault indexer
+		this.indexer = new VaultIndexer(this.app);
+		
+		// Index the vault on startup
+		await this.indexVault();
 
 		// Register the chatbot view type
 		this.registerView(
@@ -96,6 +104,23 @@ export default class HelloWorldPlugin extends Plugin {
 	}
 
 	onunload() {
+	}
+
+	async indexVault() {
+		const notice = new Notice("Indexing vault...", 0);
+		try {
+			if (this.settings.indexMarkdownOnly) {
+				await this.indexer.indexVault();
+			} else {
+				await this.indexer.indexAllFiles();
+			}
+			notice.hide();
+			new Notice(`Indexed ${this.indexer.getFileCount()} files`);
+		} catch (error) {
+			notice.hide();
+			new Notice("Error indexing vault");
+			console.error("Vault indexing error:", error);
+		}
 	}
 
 	async loadSettings() {
