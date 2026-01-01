@@ -1,5 +1,6 @@
-import {App, PluginSettingTab, Setting} from "obsidian";
+import { App, Modal, PluginSettingTab, Setting } from "obsidian";
 import MyPlugin from "./main";
+import type { IndexedFile } from "./indexer";
 
 export interface ChatMessage {
     content: string;
@@ -11,16 +12,126 @@ export interface MyPluginSettings {
     mySetting: string;
     chatHistory: ChatMessage[];
     openRouterApiKey: string;
+    indexMarkdownOnly: boolean;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
     mySetting: 'default',
     chatHistory: [],
-    openRouterApiKey: ''
+    openRouterApiKey: '',
+    indexMarkdownOnly: true
+}
+
+/**
+ * Modal to display the list of indexed files
+ */
+export class IndexedFilesModal extends Modal {
+    private files: IndexedFile[];
+    private searchQuery: string = "";
+
+    constructor(app: App, files: IndexedFile[]) {
+        super(app);
+        this.files = files;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass("indexed-files-modal");
+
+        // Header
+        contentEl.createEl("h2", { text: "Indexed Files" });
+        contentEl.createEl("p", { 
+            text: `Total files: ${this.files.length}`,
+            cls: "indexed-files-count"
+        });
+
+        // Search input
+        const searchContainer = contentEl.createDiv({ cls: "indexed-files-search" });
+        const searchInput = searchContainer.createEl("input", {
+            type: "text",
+            placeholder: "Search files...",
+            cls: "indexed-files-search-input"
+        });
+        searchInput.addEventListener("input", (e) => {
+            this.searchQuery = (e.target as HTMLInputElement).value;
+            this.renderFileList(fileListEl);
+        });
+
+        // File list container
+        const fileListEl = contentEl.createDiv({ cls: "indexed-files-list" });
+        this.renderFileList(fileListEl);
+    }
+
+    private renderFileList(container: HTMLElement) {
+        container.empty();
+
+        const filteredFiles = this.searchQuery
+            ? this.files.filter(f => 
+                f.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+                f.path.toLowerCase().includes(this.searchQuery.toLowerCase())
+            )
+            : this.files;
+
+        if (filteredFiles.length === 0) {
+            container.createEl("p", { 
+                text: this.searchQuery ? "No files match your search." : "No files indexed yet.",
+                cls: "indexed-files-empty"
+            });
+            return;
+        }
+
+        // Show filtered count if searching
+        if (this.searchQuery) {
+            container.createEl("p", {
+                text: `Showing ${filteredFiles.length} of ${this.files.length} files`,
+                cls: "indexed-files-filter-count"
+            });
+        }
+
+        const listEl = container.createEl("ul", { cls: "indexed-files-ul" });
+        
+        for (const file of filteredFiles) {
+            const listItem = listEl.createEl("li", { cls: "indexed-file-item" });
+            
+            const fileInfo = listItem.createDiv({ cls: "indexed-file-info" });
+            fileInfo.createEl("span", { 
+                text: file.name,
+                cls: "indexed-file-name"
+            });
+            fileInfo.createEl("span", { 
+                text: file.path,
+                cls: "indexed-file-path"
+            });
+
+            const fileMeta = listItem.createDiv({ cls: "indexed-file-meta" });
+            fileMeta.createEl("span", {
+                text: `.${file.extension}`,
+                cls: "indexed-file-ext"
+            });
+            fileMeta.createEl("span", {
+                text: this.formatFileSize(file.size),
+                cls: "indexed-file-size"
+            });
+        }
+    }
+
+    private formatFileSize(bytes: number): string {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
 }
 
 export class SampleSettingTab extends PluginSettingTab {
 	plugin: MyPlugin;
+	private fileCountEl: HTMLElement | null = null;
+	private lastIndexedEl: HTMLElement | null = null;
 
 	constructor(app: App, plugin: MyPlugin) {
 		super(app, plugin);
@@ -31,6 +142,69 @@ export class SampleSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 
 		containerEl.empty();
+
+		// ===== Vault Indexer Section =====
+		containerEl.createEl("h3", { text: "Vault Indexer" });
+
+		// Index status display
+		const indexStatusContainer = containerEl.createDiv({ cls: "index-status-container" });
+		
+		const statsRow = indexStatusContainer.createDiv({ cls: "index-stats-row" });
+		
+		const fileCountContainer = statsRow.createDiv({ cls: "index-stat" });
+		fileCountContainer.createEl("span", { text: "Files indexed: " });
+		this.fileCountEl = fileCountContainer.createEl("strong", { 
+			text: String(this.plugin.indexer?.getFileCount() ?? 0)
+		});
+
+		const lastIndexedContainer = statsRow.createDiv({ cls: "index-stat" });
+		lastIndexedContainer.createEl("span", { text: "Last indexed: " });
+		const stats = this.plugin.indexer?.getStats();
+		this.lastIndexedEl = lastIndexedContainer.createEl("strong", {
+			text: stats?.lastIndexed 
+				? new Date(stats.lastIndexed).toLocaleString() 
+				: "Never"
+		});
+
+		// Buttons row
+		const buttonsRow = indexStatusContainer.createDiv({ cls: "index-buttons-row" });
+		
+		const reindexButton = buttonsRow.createEl("button", {
+			text: "Re-index Vault",
+			cls: "mod-cta"
+		});
+		reindexButton.addEventListener("click", async () => {
+			reindexButton.disabled = true;
+			reindexButton.textContent = "Indexing...";
+			
+			await this.plugin.indexVault();
+			
+			reindexButton.disabled = false;
+			reindexButton.textContent = "Re-index Vault";
+			this.updateIndexStats();
+		});
+
+		const viewAdvancedButton = buttonsRow.createEl("button", {
+			text: "View Advanced",
+		});
+		viewAdvancedButton.addEventListener("click", () => {
+			const files = this.plugin.indexer?.getIndexedFiles() ?? [];
+			new IndexedFilesModal(this.app, files).open();
+		});
+
+		// Indexer settings
+		new Setting(containerEl)
+			.setName('Index markdown files only')
+			.setDesc('When enabled, only .md files will be indexed. Disable to index all files.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.indexMarkdownOnly)
+				.onChange(async (value) => {
+					this.plugin.settings.indexMarkdownOnly = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// ===== General Settings Section =====
+		containerEl.createEl("h3", { text: "General Settings" });
 
 		new Setting(containerEl)
 			.setName('Settings #1')
@@ -56,5 +230,17 @@ export class SampleSettingTab extends PluginSettingTab {
 				text.inputEl.type = 'password';
 				return text;
 			});
+	}
+
+	private updateIndexStats(): void {
+		if (this.fileCountEl) {
+			this.fileCountEl.textContent = String(this.plugin.indexer?.getFileCount() ?? 0);
+		}
+		if (this.lastIndexedEl) {
+			const stats = this.plugin.indexer?.getStats();
+			this.lastIndexedEl.textContent = stats?.lastIndexed 
+				? new Date(stats.lastIndexed).toLocaleString() 
+				: "Never";
+		}
 	}
 }

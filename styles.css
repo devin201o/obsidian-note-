@@ -151,3 +151,162 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-on-accent);
     border: none;
 }
+
+/* Vault Indexer Settings Styles */
+.index-status-container {
+    margin-bottom: 20px;
+    padding: 12px;
+    background-color: var(--background-secondary);
+    border-radius: 8px;
+}
+
+.index-stats-row {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 12px;
+}
+
+.index-stat {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.index-stat strong {
+    color: var(--text-accent);
+}
+
+.index-buttons-row {
+    display: flex;
+    gap: 8px;
+}
+
+.index-buttons-row button {
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+}
+
+.index-buttons-row button:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.index-buttons-row button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Indexed Files Modal Styles */
+.indexed-files-modal {
+    max-width: 600px;
+}
+
+.indexed-files-modal h2 {
+    margin-top: 0;
+    margin-bottom: 8px;
+}
+
+.indexed-files-count {
+    color: var(--text-muted);
+    margin-bottom: 12px;
+}
+
+.indexed-files-search {
+    margin-bottom: 12px;
+}
+
+.indexed-files-search-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+}
+
+.indexed-files-search-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+.indexed-files-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.indexed-files-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 20px;
+}
+
+.indexed-files-filter-count {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    margin-bottom: 8px;
+}
+
+.indexed-files-ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.indexed-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.indexed-file-item:last-child {
+    border-bottom: none;
+}
+
+.indexed-file-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.indexed-file-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.indexed-file-name {
+    font-weight: 500;
+    color: var(--text-normal);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.indexed-file-path {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.indexed-file-meta {
+    display: flex;
+    gap: 12px;
+    margin-left: 12px;
+    flex-shrink: 0;
+}
+
+.indexed-file-ext {
+    color: var(--text-accent);
+    font-size: 0.85em;
+}
+
+.indexed-file-size {
+    color: var(--text-muted);
+    font-size: 0.85em;
+}
