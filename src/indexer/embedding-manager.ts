@@ -89,8 +89,14 @@ export class EmbeddingManager {
 
         // Separate chunks that need embedding from those that can be skipped
         const chunksToEmbed: Array<{ chunk: Chunk; hash: string }> = [];
+        let i = 0;
 
         for (const chunk of chunks) {
+            // Yield every 500 chunks to prevent UI freezing
+            if (i++ % 500 === 0) {
+                await this.delay(5);
+            }
+
             const hash = this.hashContent(chunk.content);
             
             if (this.vectorStore.hasValidVector(chunk.id, hash)) {
