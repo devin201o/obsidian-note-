@@ -27,8 +27,7 @@ export default class HelloWorldPlugin extends Plugin {
 				await this.embeddingManager.embedFile(file.path);
 			}
 		},
-		2000,
-		true
+		2000
 	);
 
 	async onload() {

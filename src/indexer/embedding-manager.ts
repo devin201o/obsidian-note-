@@ -106,6 +106,9 @@ export class EmbeddingManager {
 
         // Process in batches
         for (let i = 0; i < chunksToEmbed.length; i += this.config.batchSize) {
+            // Yield to the main thread to keep UI responsive
+            await this.delay(10);
+            
             const batch = chunksToEmbed.slice(i, i + this.config.batchSize);
             const texts = batch.map(item => item.chunk.content);
 
