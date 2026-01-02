@@ -19,6 +19,7 @@ export interface MyPluginSettings {
     retrievalPoolSize: number;
     maxContextChunks: number;
     excludedFolders: string[];
+    autoIndexChanges: boolean;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -31,7 +32,8 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     customRedactionPatterns: '',
     retrievalPoolSize: 50,
     maxContextChunks: 15,
-    excludedFolders: []
+    excludedFolders: [],
+    autoIndexChanges: true
 }
 
 /**
@@ -205,6 +207,16 @@ export class SampleSettingTab extends PluginSettingTab {
 		});
 
 		// Indexer settings
+		new Setting(containerEl)
+			.setName('Auto-detect changes')
+			.setDesc('If enabled, the plugin will automatically re-index files while you edit. Disable to pause indexing.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.autoIndexChanges)
+				.onChange(async (value) => {
+					this.plugin.settings.autoIndexChanges = value;
+					await this.plugin.saveSettings();
+				}));
+
 		new Setting(containerEl)
 			.setName('Index markdown files only')
 			.setDesc('When enabled, only .md files will be indexed. Disable to index all files.')
