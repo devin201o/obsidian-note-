@@ -124,7 +124,8 @@ If your plugin does not need CSS, delete this file.
     top: 4px;
     opacity: 0;
     transition: opacity 0.2s;
-    background: transparent;
+    background-color: transparent;
+    box-shadow: none;
     border: none;
     color: var(--text-muted);
     cursor: pointer;
