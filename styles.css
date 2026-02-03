@@ -379,7 +379,7 @@ If your plugin does not need CSS, delete this file.
     gap: 4px;
     align-items: center;
     margin-bottom: 4px;
-    min-height: 0;
+    flex-shrink: 0;
     overflow: hidden;
 }
 
