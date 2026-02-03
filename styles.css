@@ -104,16 +104,24 @@ If your plugin does not need CSS, delete this file.
 /* Chat Message Styles */
 .chat-message {
     margin-bottom: 12px;
-    padding: 8px 12px;
-    border-radius: 8px;
     max-width: 85%;
     width: fit-content;
-    display: inline-block;
-    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.chat-message-bubble {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px;
+    border-radius: 8px;
+    min-width: 0;
 }
 
 .chat-message-copy-button {
-    position: absolute;
+    position: sticky;
+    top: 4px;
     opacity: 0;
     transition: opacity 0.2s;
     background: transparent;
@@ -126,7 +134,7 @@ If your plugin does not need CSS, delete this file.
     display: flex;
     align-items: center;
     justify-content: center;
-    top: 0;
+    flex-shrink: 0;
 }
 
 .chat-message:hover .chat-message-copy-button {
@@ -141,27 +149,36 @@ If your plugin does not need CSS, delete this file.
 
 /* Positioning for bot messages */
 .chat-message-bot .chat-message-copy-button {
-    left: 100%;
-    margin-left: 6px;
+    order: 2;
+}
+.chat-message-bot .chat-message-bubble {
+    order: 1;
 }
 
 /* Positioning for user messages */
 .chat-message-user .chat-message-copy-button {
-    right: 100%;
-    margin-right: 6px;
+    order: 1;
+}
+.chat-message-user .chat-message-bubble {
+    order: 2;
 }
 
 .chat-message-user {
+    margin-left: auto;
+}
+
+.chat-message-user .chat-message-bubble {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
-    margin-left: auto;
-    display: block;
 }
 
 .chat-message-bot {
+    margin-right: auto;
+}
+
+.chat-message-bot .chat-message-bubble {
     background-color: var(--background-secondary);
     color: var(--text-normal);
-    margin-right: auto;
 }
 
 .chat-message-content {

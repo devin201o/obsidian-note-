@@ -273,7 +273,9 @@ export class ChatbotView extends ItemView {
             });
         });
 
-        const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
+        const messageBubble = messageEl.createDiv({ cls: "chat-message-bubble" });
+
+        const contentEl = messageBubble.createDiv({ cls: "chat-message-content" });
 
         // Use MarkdownRenderer for bot messages to make [[WikiLinks]] clickable
         if (message.sender === "bot") {
@@ -294,7 +296,7 @@ export class ChatbotView extends ItemView {
             hour: "2-digit", 
             minute: "2-digit" 
         });
-        messageEl.createDiv({ 
+        messageBubble.createDiv({
             cls: "chat-message-time",
             text: timeStr 
         });
