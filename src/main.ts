@@ -27,8 +27,7 @@ export default class HelloWorldPlugin extends Plugin {
 				await this.embeddingManager.embedFile(file.path);
 			}
 		},
-		2000,
-		true
+		30000
 	);
 
 	async onload() {
@@ -84,6 +83,7 @@ export default class HelloWorldPlugin extends Plugin {
 		// Register vault event listeners for real-time chunk updates
 		this.registerEvent(
 			this.app.vault.on("modify", (file: TAbstractFile) => {
+				if (!this.settings.autoIndexChanges) return;
 				if (file instanceof TFile && file.extension === "md") {
 					this.debouncedUpdateFile(file);
 				}
@@ -92,6 +92,7 @@ export default class HelloWorldPlugin extends Plugin {
 
 		this.registerEvent(
 			this.app.vault.on("delete", (file: TAbstractFile) => {
+				if (!this.settings.autoIndexChanges) return;
 				if (file instanceof TFile) {
 					this.chunkManager.deleteFile(file.path);
 					this.embeddingManager.deleteFileVectors(file.path);
@@ -102,6 +103,7 @@ export default class HelloWorldPlugin extends Plugin {
 
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TAbstractFile, oldPath: string) => {
+				if (!this.settings.autoIndexChanges) return;
 				if (file instanceof TFile) {
 					this.chunkManager.renameFile(oldPath, file.path);
 					this.embeddingManager.renameFileVectors(oldPath, file.path);
@@ -134,6 +136,30 @@ export default class HelloWorldPlugin extends Plugin {
 			}
 		});
 		
+		// Add command to toggle auto-indexing
+		this.addCommand({
+			id: 'toggle-auto-indexing',
+			name: 'Toggle Auto-Indexing (Pause/Resume)',
+			callback: async () => {
+				this.settings.autoIndexChanges = !this.settings.autoIndexChanges;
+				await this.saveSettings();
+				const state = this.settings.autoIndexChanges ? "Resumed" : "Paused";
+				new Notice(`Auto-indexing ${state}`);
+			}
+		});
+
+		// Add command to index changed files without full rebuild
+		this.addCommand({
+			id: 'index-changes-now',
+			name: 'Index Changed Files Now',
+			callback: async () => {
+				new Notice("Scanning for modified files...");
+				await this.rebuildChunkIndex();
+				await this.rebuildEmbeddings();
+				new Notice("Indexing complete.");
+			}
+		});
+
 		// Add command to rebuild the chunk index and embeddings
 		this.addCommand({
 			id: 'rebuild-index',
