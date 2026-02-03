@@ -126,6 +126,15 @@ If your plugin does not need CSS, delete this file.
 
 .chat-message-content {
     word-wrap: break-word;
+    /* Enable text selection */
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* Ensure selection is visible on user messages (accent background) */
+.chat-message-user .chat-message-content::selection {
+    background-color: var(--text-on-accent);
+    color: var(--interactive-accent);
 }
 
 /* Rendered markdown in bot messages */
