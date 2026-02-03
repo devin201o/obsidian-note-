@@ -109,6 +109,46 @@ If your plugin does not need CSS, delete this file.
     max-width: 85%;
     width: fit-content;
     display: inline-block;
+    position: relative;
+}
+
+.chat-message-copy-button {
+    position: absolute;
+    opacity: 0;
+    transition: opacity 0.2s;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    top: 0;
+}
+
+.chat-message:hover .chat-message-copy-button {
+    opacity: 1;
+}
+
+.chat-message-copy-button:hover {
+    color: var(--text-normal);
+    background-color: var(--background-modifier-hover);
+    border-radius: 4px;
+}
+
+/* Positioning for bot messages */
+.chat-message-bot .chat-message-copy-button {
+    left: 100%;
+    margin-left: 6px;
+}
+
+/* Positioning for user messages */
+.chat-message-user .chat-message-copy-button {
+    right: 100%;
+    margin-right: 6px;
 }
 
 .chat-message-user {
