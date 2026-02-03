@@ -126,6 +126,9 @@ If your plugin does not need CSS, delete this file.
 
 .chat-message-content {
     word-wrap: break-word;
+    /* Enable text selection */
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 /* Rendered markdown in bot messages */
