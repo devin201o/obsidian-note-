@@ -255,7 +255,27 @@ export class ChatbotView extends ItemView {
             cls: `chat-message chat-message-${message.sender}` 
         });
 
-        const contentEl = messageEl.createDiv({ cls: "chat-message-content" });
+        const copyButton = messageEl.createEl("button", {
+            cls: "chat-message-copy-button",
+            attr: { "aria-label": "Copy message" }
+        });
+        setIcon(copyButton, "copy");
+
+        copyButton.addEventListener("click", () => {
+            navigator.clipboard.writeText(message.content).then(() => {
+                new Notice("Copied to clipboard");
+                setIcon(copyButton, "check");
+                setTimeout(() => {
+                    setIcon(copyButton, "copy");
+                }, 2000);
+            }).catch(() => {
+                new Notice("Failed to copy to clipboard");
+            });
+        });
+
+        const messageBubble = messageEl.createDiv({ cls: "chat-message-bubble" });
+
+        const contentEl = messageBubble.createDiv({ cls: "chat-message-content" });
 
         // Use MarkdownRenderer for bot messages to make [[WikiLinks]] clickable
         if (message.sender === "bot") {
@@ -276,7 +296,7 @@ export class ChatbotView extends ItemView {
             hour: "2-digit", 
             minute: "2-digit" 
         });
-        messageEl.createDiv({ 
+        messageBubble.createDiv({
             cls: "chat-message-time",
             text: timeStr 
         });
