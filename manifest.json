@@ -3,9 +3,8 @@
 	"name": "Obsidian note+",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "Chat with your notes using a local-first RAG pipeline with hybrid vector and keyword search, plus automatic secret redaction before anything leaves your vault.",
+	"author": "devin201o",
+	"authorUrl": "https://github.com/devin201o",
 	"isDesktopOnly": false
 }

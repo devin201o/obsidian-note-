@@ -1,7 +1,7 @@
 {
 	"name": "obsidian-note+",
 	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"description": "Chat with your notes using a local-first RAG pipeline with hybrid vector and keyword search, plus automatic secret redaction before anything leaves your vault.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
