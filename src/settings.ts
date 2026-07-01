@@ -29,6 +29,7 @@ export interface MyPluginSettings {
     relevanceThreshold: number;
     contextTokenBudget: number;
     neighborExpansion: boolean;
+    queryRewriting: boolean;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -49,7 +50,8 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     vectorWeight: 0.6,
     relevanceThreshold: 0.5,
     contextTokenBudget: 6000,
-    neighborExpansion: true
+    neighborExpansion: true,
+    queryRewriting: true
 }
 
 /**
@@ -420,6 +422,16 @@ export class SampleSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.neighborExpansion)
 				.onChange(async (value) => {
 					this.plugin.settings.neighborExpansion = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Conversation-aware query rewriting')
+			.setDesc('Before searching, rewrite follow-up questions into a standalone query using the conversation, so references like "the other one" resolve correctly. Adds one small LLM call per follow-up message.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.queryRewriting)
+				.onChange(async (value) => {
+					this.plugin.settings.queryRewriting = value;
 					await this.plugin.saveSettings();
 				}));
 

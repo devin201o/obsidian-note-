@@ -1,6 +1,7 @@
 import { EmbeddingManager, HybridSearchResult } from "../indexer/embedding-manager";
 import { SearchOptions } from "../indexer/vector-store";
 import { sendChatMessage } from "../llm/openrouter";
+import { rewriteQuery } from "./query-transformer";
 import type { MyPluginSettings } from "../settings";
 
 /**
@@ -80,10 +81,18 @@ export class RAGEngine {
         const relevanceThreshold = settings?.relevanceThreshold ?? 0.5;
         const tokenBudget = settings?.contextTokenBudget ?? 6000;
         const neighborRadius = settings?.neighborExpansion === false ? 0 : 1;
+        const queryRewriting = settings?.queryRewriting !== false;
+
+        // Step 0: Rewrite follow-up questions into a standalone retrieval query
+        // using the conversation, so references like "the other one" resolve.
+        let retrievalQuery = userQuery;
+        if (queryRewriting && conversationHistory.length > 0) {
+            retrievalQuery = await rewriteQuery(this.apiKey, this.model, conversationHistory, userQuery);
+        }
 
         // Step 1: Retrieve relevant chunks with hybrid search (vector + BM25 fusion)
         const searchResults = await this.embeddingManager.search(
-            userQuery, 
+            retrievalQuery, 
             maxChunks, 
             poolSize, 
             searchOptions
