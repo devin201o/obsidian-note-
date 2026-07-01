@@ -366,16 +366,19 @@ export class EmbeddingManager {
      * fused with BM25 lexical ranking. Lexical retrieval can surface exact-term
      * matches (names, IDs, jargon) that pure embeddings miss, and vice versa.
      *
-     * @param queryText The text to search for
+     * @param queryText The text embedded for dense retrieval (may be a HyDE passage)
      * @param limit Maximum number of results to return after fusion
      * @param poolSize Number of candidates to fetch from each retriever before fusing
      * @param options Optional filters for files, folders, or tags
+     * @param lexicalQueryText Text used for BM25 (defaults to queryText); pass the
+     *   original keywords when queryText is a hypothetical document
      */
     async search(
         queryText: string,
         limit: number = 15,
         poolSize: number = 50,
-        options?: SearchOptions
+        options?: SearchOptions,
+        lexicalQueryText?: string
     ): Promise<HybridSearchResult[]> {
         const queryVector = await this.getQueryEmbedding(queryText);
         if (!queryVector) {
@@ -385,10 +388,11 @@ export class EmbeddingManager {
         // Dense retrieval: already filtered for excluded folders + search options.
         const vectorCandidates = this.vectorStore.search(queryVector, poolSize, options);
 
-        // Sparse retrieval: BM25 over the same filtered document set.
+        // Sparse retrieval: BM25 over the same filtered document set. Uses the
+        // literal keywords, not the (possibly hypothetical) dense query text.
         this.ensureLexicalIndex();
         const allow = (filePath: string) => this.vectorStore.passesFilter(filePath, options);
-        const lexicalHits = this.lexicalIndex.search(queryText, poolSize, allow);
+        const lexicalHits = this.lexicalIndex.search(lexicalQueryText ?? queryText, poolSize, allow);
 
         if (vectorCandidates.length === 0 && lexicalHits.length === 0) {
             return [];

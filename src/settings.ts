@@ -30,6 +30,7 @@ export interface MyPluginSettings {
     contextTokenBudget: number;
     neighborExpansion: boolean;
     queryRewriting: boolean;
+    useHyde: boolean;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -51,7 +52,8 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     relevanceThreshold: 0.5,
     contextTokenBudget: 6000,
     neighborExpansion: true,
-    queryRewriting: true
+    queryRewriting: true,
+    useHyde: false
 }
 
 /**
@@ -432,6 +434,16 @@ export class SampleSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.queryRewriting)
 				.onChange(async (value) => {
 					this.plugin.settings.queryRewriting = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('HyDE (hypothetical document embeddings)')
+			.setDesc('Generate a short hypothetical answer and embed that for vector search, which often matches notes better than embedding the raw question. Improves vague queries at the cost of one extra LLM call per message. Off by default.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.useHyde)
+				.onChange(async (value) => {
+					this.plugin.settings.useHyde = value;
 					await this.plugin.saveSettings();
 				}));
 

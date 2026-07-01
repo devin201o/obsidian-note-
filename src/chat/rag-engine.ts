@@ -1,7 +1,7 @@
 import { EmbeddingManager, HybridSearchResult } from "../indexer/embedding-manager";
 import { SearchOptions } from "../indexer/vector-store";
 import { sendChatMessage } from "../llm/openrouter";
-import { rewriteQuery } from "./query-transformer";
+import { rewriteQuery, generateHydeDocument } from "./query-transformer";
 import type { MyPluginSettings } from "../settings";
 
 /**
@@ -82,6 +82,7 @@ export class RAGEngine {
         const tokenBudget = settings?.contextTokenBudget ?? 6000;
         const neighborRadius = settings?.neighborExpansion === false ? 0 : 1;
         const queryRewriting = settings?.queryRewriting !== false;
+        const useHyde = settings?.useHyde === true;
 
         // Step 0: Rewrite follow-up questions into a standalone retrieval query
         // using the conversation, so references like "the other one" resolve.
@@ -90,12 +91,23 @@ export class RAGEngine {
             retrievalQuery = await rewriteQuery(this.apiKey, this.model, conversationHistory, userQuery);
         }
 
+        // Optional HyDE: embed a hypothetical answer passage for dense retrieval
+        // while keeping the literal keywords for BM25.
+        let vectorQuery = retrievalQuery;
+        if (useHyde) {
+            const hyde = await generateHydeDocument(this.apiKey, this.model, retrievalQuery);
+            if (hyde.length > 0) {
+                vectorQuery = hyde;
+            }
+        }
+
         // Step 1: Retrieve relevant chunks with hybrid search (vector + BM25 fusion)
         const searchResults = await this.embeddingManager.search(
-            retrievalQuery, 
+            vectorQuery, 
             maxChunks, 
             poolSize, 
-            searchOptions
+            searchOptions,
+            retrievalQuery
         );
 
         // Step 2: Drop weak matches, then pack the strongest into a token budget,

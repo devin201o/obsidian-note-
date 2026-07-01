@@ -80,3 +80,44 @@ export async function rewriteQuery(
         return query;
     }
 }
+
+const HYDE_SYSTEM_PROMPT =
+    "You generate a short, hypothetical passage that could plausibly answer the " +
+    "user's question, written in the declarative style of a personal note. This " +
+    "passage is used only to improve semantic search; it does not need to be true. " +
+    "Write 2-4 factual-sounding sentences. Do not hedge, ask questions, or add " +
+    "preamble\u2014output only the passage.";
+
+/**
+ * Generate a Hypothetical Document (HyDE) for a query. Embedding a note-like
+ * passage tends to match real notes far better than embedding a question does.
+ * Returns an empty string on failure so callers can fall back to the raw query.
+ */
+export async function generateHydeDocument(
+    apiKey: string,
+    model: string,
+    query: string
+): Promise<string> {
+    if (!apiKey) {
+        return "";
+    }
+
+    try {
+        const response = await sendChatMessage(
+            apiKey,
+            [
+                { role: "system", content: HYDE_SYSTEM_PROMPT },
+                { role: "user", content: query }
+            ],
+            model
+        );
+
+        if (response.error || !response.content) {
+            return "";
+        }
+
+        return response.content.trim();
+    } catch {
+        return "";
+    }
+}
