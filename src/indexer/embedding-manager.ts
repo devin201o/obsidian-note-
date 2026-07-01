@@ -316,6 +316,23 @@ export class EmbeddingManager {
     }
 
     /**
+     * Fetch a single stored chunk by id (used for neighbor expansion).
+     */
+    getChunk(chunkId: string): HybridSearchResult | null {
+        const stored = this.vectorStore.getVector(chunkId);
+        if (!stored || !stored.content) {
+            return null;
+        }
+        return {
+            chunkId,
+            content: stored.content,
+            filePath: stored.filePath,
+            fileLink: stored.fileLink ?? "",
+            score: 0
+        };
+    }
+
+    /**
      * Rebuild the BM25 lexical index if the vector store changed since it was
      * last built. The index is a derived, in-memory structure.
      */

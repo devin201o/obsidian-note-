@@ -1,4 +1,4 @@
-import { EmbeddingManager } from "../indexer/embedding-manager";
+import { EmbeddingManager, HybridSearchResult } from "../indexer/embedding-manager";
 import { SearchOptions } from "../indexer/vector-store";
 import { sendChatMessage } from "../llm/openrouter";
 import type { MyPluginSettings } from "../settings";
@@ -7,6 +7,20 @@ import type { MyPluginSettings } from "../settings";
  * Settings getter function type
  */
 type SettingsGetter = () => MyPluginSettings;
+
+/**
+ * A block of context assembled for the prompt: one primary chunk plus any
+ * neighbor chunks merged into a single passage.
+ */
+interface ContextItem {
+    fileLink: string;
+    content: string;
+}
+
+/** Rough token estimate (~4 chars/token) used for context budgeting. */
+function estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+}
 
 /**
  * RAGEngine connects the embedding search with the LLM to provide
@@ -60,10 +74,14 @@ export class RAGEngine {
         }
 
         // Get retrieval settings (use defaults if getter not set)
-        const poolSize = this.getSettings?.().retrievalPoolSize ?? 50;
-        const maxChunks = this.getSettings?.().maxContextChunks ?? 15;
+        const settings = this.getSettings?.();
+        const poolSize = settings?.retrievalPoolSize ?? 50;
+        const maxChunks = settings?.maxContextChunks ?? 15;
+        const relevanceThreshold = settings?.relevanceThreshold ?? 0.5;
+        const tokenBudget = settings?.contextTokenBudget ?? 6000;
+        const neighborRadius = settings?.neighborExpansion === false ? 0 : 1;
 
-        // Step 1: Retrieve relevant chunks with hybrid search (vector + keyword reranking)
+        // Step 1: Retrieve relevant chunks with hybrid search (vector + BM25 fusion)
         const searchResults = await this.embeddingManager.search(
             userQuery, 
             maxChunks, 
@@ -71,8 +89,13 @@ export class RAGEngine {
             searchOptions
         );
 
-        // Step 2: Build the system prompt with context
-        const systemPrompt = this.buildSystemPrompt(searchResults, searchOptions);
+        // Step 2: Drop weak matches, then pack the strongest into a token budget,
+        // expanding each with its neighbors for fuller context.
+        const filtered = this.applyRelevanceFloor(searchResults, relevanceThreshold);
+        const contextItems = this.packContext(filtered, tokenBudget, neighborRadius);
+
+        // Step 3: Build the system prompt with context
+        const systemPrompt = this.buildSystemPrompt(contextItems, searchOptions);
 
         // Step 3: Build messages array
         const messages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
@@ -98,10 +121,104 @@ export class RAGEngine {
     }
 
     /**
+     * Keep only results whose score is within `threshold` of the top result's
+     * score (relative floor), so vague queries don't pad the context with weak
+     * matches. The single best result is always kept.
+     */
+    private applyRelevanceFloor(results: HybridSearchResult[], threshold: number): HybridSearchResult[] {
+        if (results.length === 0) {
+            return results;
+        }
+        const top = results[0];
+        if (!top || top.score <= 0 || threshold <= 0) {
+            return results;
+        }
+        const cutoff = top.score * threshold;
+        const kept = results.filter(r => r.score >= cutoff);
+        return kept.length > 0 ? kept : [top];
+    }
+
+    /**
+     * Assemble context blocks up to a token budget. Each primary result is
+     * expanded with adjacent chunks from the same file (neighbor expansion),
+     * deduplicating chunks already included by an earlier block.
+     */
+    private packContext(
+        results: HybridSearchResult[],
+        tokenBudget: number,
+        neighborRadius: number
+    ): ContextItem[] {
+        const includedIds = new Set<string>();
+        const items: ContextItem[] = [];
+        let usedTokens = 0;
+
+        for (const result of results) {
+            if (includedIds.has(result.chunkId)) {
+                continue;
+            }
+
+            const group = this.expandNeighbors(result.chunkId, neighborRadius, includedIds);
+            if (group.length === 0) {
+                continue;
+            }
+
+            const content = group.map(g => g.content).join("\n\n");
+            const itemTokens = estimateTokens(content);
+
+            if (items.length > 0 && usedTokens + itemTokens > tokenBudget) {
+                break;
+            }
+
+            for (const g of group) {
+                includedIds.add(g.chunkId);
+            }
+            items.push({ fileLink: result.fileLink, content });
+            usedTokens += itemTokens;
+        }
+
+        return items;
+    }
+
+    /**
+     * Gather a chunk together with its neighbors (chunkIndex +/- radius) from the
+     * same file, ordered by position, skipping chunks already included.
+     */
+    private expandNeighbors(
+        centerId: string,
+        radius: number,
+        includedIds: Set<string>
+    ): HybridSearchResult[] {
+        const sep = centerId.lastIndexOf("::");
+        if (sep === -1) {
+            const center = this.embeddingManager.getChunk(centerId);
+            return center ? [center] : [];
+        }
+
+        const filePath = centerId.slice(0, sep);
+        const centerIndex = Number(centerId.slice(sep + 2));
+        if (Number.isNaN(centerIndex)) {
+            const center = this.embeddingManager.getChunk(centerId);
+            return center ? [center] : [];
+        }
+
+        const group: HybridSearchResult[] = [];
+        for (let index = centerIndex - radius; index <= centerIndex + radius; index++) {
+            if (index < 0) continue;
+            const id = `${filePath}::${index}`;
+            if (includedIds.has(id)) continue;
+            const chunk = this.embeddingManager.getChunk(id);
+            if (chunk) {
+                group.push(chunk);
+            }
+        }
+        return group;
+    }
+
+    /**
      * Build the system prompt with retrieved context
      */
     private buildSystemPrompt(
-        searchResults: Array<{ chunkId: string; content: string; filePath: string; fileLink: string; score: number }>,
+        contextItems: ContextItem[],
         searchOptions?: SearchOptions
     ): string {
         let basePrompt = `You are an Obsidian assistant. Answer the user's question based on the context provided from their notes.
@@ -130,7 +247,7 @@ CRITICAL INSTRUCTIONS:
             }
         }
 
-        if (searchResults.length === 0) {
+        if (contextItems.length === 0) {
             return `${basePrompt}
 
 Note: No relevant context was found in the vault for this query. Answer based on your general knowledge, but inform the user that no specific notes were found.`;
@@ -139,9 +256,9 @@ Note: No relevant context was found in the vault for this query. Answer based on
         // Build context section with sources
         let contextSection = "\n\n--- CONTEXT FROM YOUR NOTES ---\n";
         
-        for (const result of searchResults) {
-            contextSection += `\nSource: ${result.fileLink} (relevance: ${(result.score * 100).toFixed(1)}%)\n`;
-            contextSection += `${result.content}\n`;
+        for (const item of contextItems) {
+            contextSection += `\nSource: ${item.fileLink}\n`;
+            contextSection += `${item.content}\n`;
             contextSection += "---\n";
         }
 

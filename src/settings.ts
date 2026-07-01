@@ -26,6 +26,9 @@ export interface MyPluginSettings {
     chunkOverlap: number;
     hybridStrategy: HybridStrategy;
     vectorWeight: number;
+    relevanceThreshold: number;
+    contextTokenBudget: number;
+    neighborExpansion: boolean;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -43,7 +46,10 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     chunkSize: 1000,
     chunkOverlap: 200,
     hybridStrategy: 'rrf',
-    vectorWeight: 0.6
+    vectorWeight: 0.6,
+    relevanceThreshold: 0.5,
+    contextTokenBudget: 6000,
+    neighborExpansion: true
 }
 
 /**
@@ -373,13 +379,47 @@ export class SampleSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Max context chunks')
-			.setDesc('Maximum number of chunks sent to the LLM. Higher values provide more context but use more tokens.')
+			.setDesc('Maximum number of top matches considered before relevance filtering and packing. Higher values improve recall but consider more candidates.')
 			.addSlider(slider => slider
 				.setLimits(1, 30, 1)
 				.setValue(this.plugin.settings.maxContextChunks)
 				.setDynamicTooltip()
 				.onChange(async (value) => {
 					this.plugin.settings.maxContextChunks = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Relevance threshold')
+			.setDesc('Drop matches scoring below this fraction of the top match. Higher values send fewer, more relevant chunks (better for vague queries); 0 disables filtering.')
+			.addSlider(slider => slider
+				.setLimits(0, 100, 5)
+				.setValue(Math.round(this.plugin.settings.relevanceThreshold * 100))
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.relevanceThreshold = value / 100;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Context token budget')
+			.setDesc('Approximate maximum tokens of note context sent to the LLM. Chunks are packed until this budget is reached.')
+			.addSlider(slider => slider
+				.setLimits(1000, 16000, 500)
+				.setValue(this.plugin.settings.contextTokenBudget)
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.contextTokenBudget = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Neighbor expansion')
+			.setDesc('Include the chunks immediately before and after each match from the same note, giving the model fuller surrounding context.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.neighborExpansion)
+				.onChange(async (value) => {
+					this.plugin.settings.neighborExpansion = value;
 					await this.plugin.saveSettings();
 				}));
 
