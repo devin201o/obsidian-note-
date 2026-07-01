@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
-import MyPlugin from "../main";
+import type MyPlugin from "../main";
 import { IndexedFilesModal } from "./indexed-files-modal";
 import { UserGuideModal } from "./user-guide-modal";
 import { CHAT_PROVIDER_LABELS, EMBEDDING_PROVIDER_LABELS } from "../llm/factory";
