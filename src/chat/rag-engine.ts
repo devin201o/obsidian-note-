@@ -1,6 +1,6 @@
 import { EmbeddingManager, HybridSearchResult } from "../indexer/embedding-manager";
 import { SearchOptions } from "../indexer/vector-store";
-import { sendChatMessage } from "../llm/openrouter";
+import type { ChatProvider } from "../llm/types";
 import { rewriteQuery, generateHydeDocument } from "./query-transformer";
 import { rerankResults } from "./reranker";
 import type { MyPluginSettings } from "../settings";
@@ -30,8 +30,7 @@ function estimateTokens(text: string): number {
  */
 export class RAGEngine {
     private embeddingManager: EmbeddingManager;
-    private apiKey: string = "";
-    private model: string = "google/gemini-2.5-flash";
+    private chatProvider: ChatProvider | null = null;
     private getSettings: SettingsGetter | null = null;
 
     constructor(embeddingManager: EmbeddingManager) {
@@ -39,17 +38,11 @@ export class RAGEngine {
     }
 
     /**
-     * Set the API key for LLM requests
+     * Set the backend used to answer chat messages. Swapped out whenever the
+     * user changes the chat provider in settings.
      */
-    setApiKey(apiKey: string): void {
-        this.apiKey = apiKey;
-    }
-
-    /**
-     * Set the model to use for chat
-     */
-    setModel(model: string): void {
-        this.model = model;
+    setChatProvider(provider: ChatProvider): void {
+        this.chatProvider = provider;
     }
 
     /**
@@ -71,8 +64,8 @@ export class RAGEngine {
         conversationHistory: Array<{ role: "user" | "assistant"; content: string }> = [],
         searchOptions?: SearchOptions
     ): Promise<string> {
-        if (!this.apiKey) {
-            return "Error: API key not set. Please configure it in Settings → obsidian note+.";
+        if (!this.chatProvider) {
+            return "Error: AI provider not configured. Please configure it in Settings → obsidian note+.";
         }
 
         // Get retrieval settings (use defaults if getter not set)
@@ -91,14 +84,14 @@ export class RAGEngine {
         // using the conversation, so references like "the other one" resolve.
         let retrievalQuery = userQuery;
         if (queryRewriting && conversationHistory.length > 0) {
-            retrievalQuery = await rewriteQuery(this.apiKey, this.model, conversationHistory, userQuery);
+            retrievalQuery = await rewriteQuery(this.chatProvider, conversationHistory, userQuery);
         }
 
         // Optional HyDE: embed a hypothetical answer passage for dense retrieval
         // while keeping the literal keywords for BM25.
         let vectorQuery = retrievalQuery;
         if (useHyde) {
-            const hyde = await generateHydeDocument(this.apiKey, this.model, retrievalQuery);
+            const hyde = await generateHydeDocument(this.chatProvider, retrievalQuery);
             if (hyde.length > 0) {
                 vectorQuery = hyde;
             }
@@ -119,7 +112,7 @@ export class RAGEngine {
         // rerank narrow) or a relevance floor relative to the top match.
         let narrowed: HybridSearchResult[];
         if (useReranker) {
-            narrowed = await rerankResults(this.apiKey, this.model, retrievalQuery, searchResults, maxChunks);
+            narrowed = await rerankResults(this.chatProvider, retrievalQuery, searchResults, maxChunks);
         } else {
             narrowed = this.applyRelevanceFloor(searchResults, relevanceThreshold);
         }
@@ -144,8 +137,8 @@ export class RAGEngine {
         // Add the current query
         messages.push({ role: "user", content: userQuery });
 
-        // Step 4: Send to LLM with configured model
-        const response = await sendChatMessage(this.apiKey, messages, this.model);
+        // Step 4: Send to the configured chat provider
+        const response = await this.chatProvider.sendChatMessage(messages);
 
         if (response.error) {
             return `Error: ${response.error}`;

@@ -1,4 +1,4 @@
-import { sendChatMessage } from "../llm/openrouter";
+import type { ChatProvider } from "../llm/types";
 
 /**
  * A conversation turn used as context for query transformation.
@@ -36,15 +36,10 @@ function sanitizeQuery(text: string): string {
  * there is no history to resolve against.
  */
 export async function rewriteQuery(
-    apiKey: string,
-    model: string,
+    provider: ChatProvider,
     history: ConversationTurn[],
     query: string
 ): Promise<string> {
-    if (!apiKey) {
-        return query;
-    }
-
     const recent = history.slice(-MAX_HISTORY_TURNS);
     if (recent.length === 0) {
         // Nothing to disambiguate against; skip the extra call.
@@ -61,14 +56,10 @@ export async function rewriteQuery(
         `Standalone search query:`;
 
     try {
-        const response = await sendChatMessage(
-            apiKey,
-            [
-                { role: "system", content: REWRITE_SYSTEM_PROMPT },
-                { role: "user", content: userPrompt }
-            ],
-            model
-        );
+        const response = await provider.sendChatMessage([
+            { role: "system", content: REWRITE_SYSTEM_PROMPT },
+            { role: "user", content: userPrompt }
+        ]);
 
         if (response.error || !response.content) {
             return query;
@@ -94,23 +85,14 @@ const HYDE_SYSTEM_PROMPT =
  * Returns an empty string on failure so callers can fall back to the raw query.
  */
 export async function generateHydeDocument(
-    apiKey: string,
-    model: string,
+    provider: ChatProvider,
     query: string
 ): Promise<string> {
-    if (!apiKey) {
-        return "";
-    }
-
     try {
-        const response = await sendChatMessage(
-            apiKey,
-            [
-                { role: "system", content: HYDE_SYSTEM_PROMPT },
-                { role: "user", content: query }
-            ],
-            model
-        );
+        const response = await provider.sendChatMessage([
+            { role: "system", content: HYDE_SYSTEM_PROMPT },
+            { role: "user", content: query }
+        ]);
 
         if (response.error || !response.content) {
             return "";

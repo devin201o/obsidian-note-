@@ -7,6 +7,7 @@ import { VectorStore } from "./indexer/vector-store";
 import { EmbeddingManager } from "./indexer/embedding-manager";
 import { RAGEngine } from "./chat/rag-engine";
 import { PrivacyManager } from "./indexer/privacy-manager";
+import { createChatProvider, createEmbeddingProvider, isEmbeddingProviderConfigured } from "./llm/factory";
 
 export default class HelloWorldPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -25,7 +26,7 @@ export default class HelloWorldPlugin extends Plugin {
 			this.vectorStore.setStoredMtime(file.path, file.stat.mtime);
 			console.log(`Rechunked file: ${file.path}`);
 			// Update embeddings for the modified file
-			if (this.settings.openRouterApiKey) {
+			if (isEmbeddingProviderConfigured(this.settings)) {
 				await this.embeddingManager.embedFile(file.path);
 			}
 		},
@@ -69,13 +70,12 @@ export default class HelloWorldPlugin extends Plugin {
 			this.vectorStore,
 			{ batchSize: 20, batchDelayMs: 100 }
 		);
-		this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
+		this.embeddingManager.setEmbeddingProvider(createEmbeddingProvider(this.settings));
 		this.embeddingManager.setHybridConfig(this.settings.hybridStrategy, this.settings.vectorWeight);
 		
 		// Initialize the RAG engine
 		this.ragEngine = new RAGEngine(this.embeddingManager);
-		this.ragEngine.setApiKey(this.settings.openRouterApiKey);
-		this.ragEngine.setModel(this.settings.openRouterModel);
+		this.ragEngine.setChatProvider(createChatProvider(this.settings));
 		this.ragEngine.setSettingsGetter(() => this.settings);
 		
 		// Defer the vault scan and chunk rebuild until Obsidian's workspace layout
@@ -307,14 +307,14 @@ export default class HelloWorldPlugin extends Plugin {
 	}
 
 	async rebuildEmbeddings() {
-		if (!this.settings.openRouterApiKey) {
-			new Notice("API key not set. Skipping embeddings.");
+		if (!isEmbeddingProviderConfigured(this.settings)) {
+			new Notice("Embedding provider not configured. Skipping embeddings.");
 			return;
 		}
 
 		const notice = new Notice("Generating embeddings...", 0);
 		try {
-			this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
+			this.embeddingManager.setEmbeddingProvider(createEmbeddingProvider(this.settings));
 			const result = await this.embeddingManager.embedAllFiles();
 			notice.hide();
 			
@@ -418,8 +418,8 @@ export default class HelloWorldPlugin extends Plugin {
 	}
 
 	async testSearch() {
-		if (!this.settings.openRouterApiKey) {
-			new Notice("API key not set. Please configure it in settings.");
+		if (!isEmbeddingProviderConfigured(this.settings)) {
+			new Notice("Embedding provider not configured. Please configure it in settings.");
 			return;
 		}
 
@@ -475,14 +475,13 @@ export default class HelloWorldPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		// Update embedding manager and RAG engine with new API key if it changes
+		// Update embedding manager and RAG engine with the current provider config
 		if (this.embeddingManager) {
-			this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
+			this.embeddingManager.setEmbeddingProvider(createEmbeddingProvider(this.settings));
 			this.embeddingManager.setHybridConfig(this.settings.hybridStrategy, this.settings.vectorWeight);
 		}
 		if (this.ragEngine) {
-			this.ragEngine.setApiKey(this.settings.openRouterApiKey);
-			this.ragEngine.setModel(this.settings.openRouterModel);
+			this.ragEngine.setChatProvider(createChatProvider(this.settings));
 		}
 		// Update privacy manager settings
 		if (this.privacyManager) {

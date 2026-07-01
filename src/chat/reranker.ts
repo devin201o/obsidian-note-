@@ -1,4 +1,4 @@
-import { sendChatMessage } from "../llm/openrouter";
+import type { ChatProvider } from "../llm/types";
 import type { HybridSearchResult } from "../indexer/embedding-manager";
 
 /** Max characters of each passage shown to the reranker, to bound token cost. */
@@ -51,13 +51,12 @@ function parseIndexArray(text: string, count: number): number[] {
  * ranking (truncated to topN) on any error or unparseable response.
  */
 export async function rerankResults(
-    apiKey: string,
-    model: string,
+    provider: ChatProvider,
     query: string,
     candidates: HybridSearchResult[],
     topN: number
 ): Promise<HybridSearchResult[]> {
-    if (!apiKey || candidates.length <= 1) {
+    if (candidates.length <= 1) {
         return candidates.slice(0, topN);
     }
 
@@ -68,14 +67,10 @@ export async function rerankResults(
     const userPrompt = `Query: ${query}\n\nPassages:\n${list}`;
 
     try {
-        const response = await sendChatMessage(
-            apiKey,
-            [
-                { role: "system", content: RERANK_SYSTEM_PROMPT },
-                { role: "user", content: userPrompt }
-            ],
-            model
-        );
+        const response = await provider.sendChatMessage([
+            { role: "system", content: RERANK_SYSTEM_PROMPT },
+            { role: "user", content: userPrompt }
+        ]);
 
         if (response.error || !response.content) {
             return candidates.slice(0, topN);
