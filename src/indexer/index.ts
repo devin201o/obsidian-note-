@@ -11,4 +11,7 @@ export { VectorStore } from "./vector-store";
 export type { StoredVector, VectorStoreData, SearchResult, CachedChunk } from "./vector-store";
 
 export { EmbeddingManager } from "./embedding-manager";
-export type { EmbeddingManagerConfig, EmbeddingResult } from "./embedding-manager";
+export type { EmbeddingManagerConfig, EmbeddingResult, HybridStrategy, HybridSearchResult } from "./embedding-manager";
+
+export { LexicalIndex, tokenize } from "./lexical-index";
+export type { LexicalDocument, LexicalHit } from "./lexical-index";

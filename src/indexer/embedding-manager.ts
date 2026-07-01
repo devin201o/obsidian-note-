@@ -1,7 +1,27 @@
 import { Notice } from "obsidian";
 import { Chunk, ChunkManager } from "./chunk-manager";
 import { VectorStore, SearchOptions } from "./vector-store";
+import { LexicalIndex } from "./lexical-index";
 import { getEmbeddings } from "../llm/openrouter";
+
+/**
+ * How vector and lexical (BM25) rankings are combined.
+ * - "rrf": Reciprocal Rank Fusion (robust, scale-free; default)
+ * - "weighted": normalized weighted sum controlled by vectorWeight
+ */
+export type HybridStrategy = "rrf" | "weighted";
+
+/** A fused search result returned to callers. */
+export interface HybridSearchResult {
+    chunkId: string;
+    content: string;
+    filePath: string;
+    fileLink: string;
+    score: number;
+}
+
+/** Constant used by Reciprocal Rank Fusion; larger = flatter rank weighting. */
+const RRF_K = 60;
 
 /**
  * Configuration for the embedding manager
@@ -37,6 +57,10 @@ export class EmbeddingManager {
     private vectorStore: VectorStore;
     private config: EmbeddingManagerConfig;
     private apiKey: string = "";
+    private lexicalIndex: LexicalIndex = new LexicalIndex();
+    private hybridStrategy: HybridStrategy = "rrf";
+    /** Weight of the vector component in "weighted" mode (0..1). */
+    private vectorWeight: number = 0.6;
 
     constructor(
         chunkManager: ChunkManager,
@@ -53,6 +77,14 @@ export class EmbeddingManager {
      */
     setApiKey(apiKey: string): void {
         this.apiKey = apiKey;
+    }
+
+    /**
+     * Configure how vector and lexical rankings are fused.
+     */
+    setHybridConfig(strategy: HybridStrategy, vectorWeight: number): void {
+        this.hybridStrategy = strategy;
+        this.vectorWeight = Math.max(0, Math.min(1, vectorWeight));
     }
 
     /**
@@ -284,31 +316,14 @@ export class EmbeddingManager {
     }
 
     /**
-     * Calculate a keyword match score between query and text
-     * Returns a normalized score between 0 and 1
+     * Rebuild the BM25 lexical index if the vector store changed since it was
+     * last built. The index is a derived, in-memory structure.
      */
-    private calculateKeywordScore(query: string, text: string): number {
-        // Sanitize: lowercase and split into words
-        const queryWords = query.toLowerCase().split(/\s+/);
-        
-        // Filter out short words (likely stop words like "a", "an", "the", "is", etc.)
-        const keywords = queryWords.filter(word => word.length >= 3);
-        
-        if (keywords.length === 0) {
-            return 0;
+    private ensureLexicalIndex(): void {
+        const version = this.vectorStore.getMutationVersion();
+        if (this.lexicalIndex.getBuiltVersion() !== version) {
+            this.lexicalIndex.build(this.vectorStore.getLexicalDocuments(), version);
         }
-        
-        const textLower = text.toLowerCase();
-        let matchCount = 0;
-        
-        for (const keyword of keywords) {
-            if (textLower.includes(keyword)) {
-                matchCount++;
-            }
-        }
-        
-        // Return normalized score (0-1)
-        return matchCount / keywords.length;
     }
 
     /**
@@ -330,10 +345,13 @@ export class EmbeddingManager {
     }
 
     /**
-     * Search for similar chunks using hybrid search (vector + keyword reranking)
+     * Search for similar chunks using hybrid search: dense vector similarity
+     * fused with BM25 lexical ranking. Lexical retrieval can surface exact-term
+     * matches (names, IDs, jargon) that pure embeddings miss, and vice versa.
+     *
      * @param queryText The text to search for
-     * @param limit Maximum number of results to return after reranking
-     * @param poolSize Number of candidates to fetch for reranking
+     * @param limit Maximum number of results to return after fusion
+     * @param poolSize Number of candidates to fetch from each retriever before fusing
      * @param options Optional filters for files, folders, or tags
      */
     async search(
@@ -341,32 +359,99 @@ export class EmbeddingManager {
         limit: number = 15,
         poolSize: number = 50,
         options?: SearchOptions
-    ): Promise<Array<{ chunkId: string; content: string; filePath: string; fileLink: string; score: number }>> {
+    ): Promise<HybridSearchResult[]> {
         const queryVector = await this.getQueryEmbedding(queryText);
         if (!queryVector) {
             return [];
         }
 
-        // Step 1: Fetch a larger pool of candidates using vector similarity
-        const candidates = this.vectorStore.search(queryVector, poolSize, options);
+        // Dense retrieval: already filtered for excluded folders + search options.
+        const vectorCandidates = this.vectorStore.search(queryVector, poolSize, options);
 
-        if (candidates.length === 0) {
+        // Sparse retrieval: BM25 over the same filtered document set.
+        this.ensureLexicalIndex();
+        const allow = (filePath: string) => this.vectorStore.passesFilter(filePath, options);
+        const lexicalHits = this.lexicalIndex.search(queryText, poolSize, allow);
+
+        if (vectorCandidates.length === 0 && lexicalHits.length === 0) {
             return [];
         }
 
-        // Step 2: Calculate hybrid scores (vector similarity + keyword match)
-        const scoredCandidates = candidates.map(candidate => {
-            const keywordScore = this.calculateKeywordScore(queryText, candidate.content);
-            // Hybrid score: 70% vector similarity, 30% keyword match
-            const hybridScore = (candidate.score * 0.7) + (keywordScore * 0.3);
-            return {
-                ...candidate,
-                score: hybridScore
-            };
-        });
+        // Build a lookup so we can resolve content/links for lexical-only hits.
+        const meta = new Map<string, { content: string; filePath: string; fileLink: string }>();
+        for (const c of vectorCandidates) {
+            meta.set(c.chunkId, { content: c.content, filePath: c.filePath, fileLink: c.fileLink });
+        }
+        const resolveMeta = (id: string) => {
+            const existing = meta.get(id);
+            if (existing) return existing;
+            const stored = this.vectorStore.getVector(id);
+            if (!stored || !stored.content) return null;
+            const resolved = { content: stored.content, filePath: stored.filePath, fileLink: stored.fileLink ?? "" };
+            meta.set(id, resolved);
+            return resolved;
+        };
 
-        // Step 3: Re-sort by hybrid score and return top results
-        scoredCandidates.sort((a, b) => b.score - a.score);
-        return scoredCandidates.slice(0, limit);
+        const fusedScores = this.hybridStrategy === "weighted"
+            ? this.fuseWeighted(vectorCandidates, lexicalHits)
+            : this.fuseRRF(vectorCandidates, lexicalHits);
+
+        const results: HybridSearchResult[] = [];
+        for (const [id, score] of fusedScores) {
+            const m = resolveMeta(id);
+            if (!m) continue;
+            results.push({ chunkId: id, content: m.content, filePath: m.filePath, fileLink: m.fileLink, score });
+        }
+
+        results.sort((a, b) => b.score - a.score);
+        return results.slice(0, limit);
+    }
+
+    /**
+     * Reciprocal Rank Fusion: combine rankings by summing 1/(k + rank). This is
+     * scale-free, so it sidesteps the problem of mixing bounded cosine scores
+     * with unbounded BM25 scores.
+     */
+    private fuseRRF(
+        vectorCandidates: Array<{ chunkId: string }>,
+        lexicalHits: Array<{ id: string }>
+    ): Map<string, number> {
+        const scores = new Map<string, number>();
+        const add = (id: string, rank: number) => {
+            scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + rank + 1));
+        };
+        vectorCandidates.forEach((c, rank) => add(c.chunkId, rank));
+        lexicalHits.forEach((h, rank) => add(h.id, rank));
+        return scores;
+    }
+
+    /**
+     * Weighted-sum fusion. Cosine scores are already ~0..1; BM25 scores are
+     * min-max normalized over the candidate set before combining.
+     */
+    private fuseWeighted(
+        vectorCandidates: Array<{ chunkId: string; score: number }>,
+        lexicalHits: Array<{ id: string; score: number }>
+    ): Map<string, number> {
+        const scores = new Map<string, number>();
+
+        let maxLex = 0;
+        for (const h of lexicalHits) {
+            if (h.score > maxLex) maxLex = h.score;
+        }
+
+        const wVec = this.vectorWeight;
+        const wLex = 1 - this.vectorWeight;
+
+        for (const c of vectorCandidates) {
+            const vecNorm = Math.max(0, Math.min(1, c.score));
+            scores.set(c.chunkId, (scores.get(c.chunkId) ?? 0) + wVec * vecNorm);
+        }
+        for (const h of lexicalHits) {
+            const lexNorm = maxLex > 0 ? h.score / maxLex : 0;
+            scores.set(h.id, (scores.get(h.id) ?? 0) + wLex * lexNorm);
+        }
+
+        return scores;
     }
 }

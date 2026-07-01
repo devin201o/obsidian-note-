@@ -87,6 +87,8 @@ export class VectorStore {
     private isDirty: boolean = false;
     /** Folders to exclude from search results */
     private excludedFolders: string[] = [];
+    /** Monotonic counter bumped on every mutation, used to invalidate derived indexes (e.g. BM25) */
+    private mutationVersion: number = 0;
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
@@ -143,6 +145,7 @@ export class VectorStore {
                 if (storeData.version === VECTOR_STORE_VERSION && storeData.vectors) {
                     this.vectors = new Map(Object.entries(storeData.vectors));
                     this.fileMtimes = new Map(Object.entries(storeData.fileMtimes ?? {}));
+                    this.mutationVersion++;
                     console.log(`Loaded ${this.vectors.size} vectors from ${VECTOR_STORE_FILE}`);
                 }
                 return;
@@ -235,6 +238,38 @@ export class VectorStore {
     ): void {
         this.vectors.set(chunkId, { vector, contentHash, content, filePath, fileLink, heading });
         this.isDirty = true;
+        this.mutationVersion++;
+    }
+
+    /**
+     * Current mutation version. Increments whenever the set of stored chunk
+     * contents changes, so derived indexes (like BM25) know when to rebuild.
+     */
+    getMutationVersion(): number {
+        return this.mutationVersion;
+    }
+
+    /**
+     * Whether a file path is searchable under the given options: not in an
+     * excluded folder and matching any active file/folder/tag filter.
+     */
+    passesFilter(filePath: string, options?: SearchOptions): boolean {
+        if (this.isExcluded(filePath)) {
+            return false;
+        }
+        return this.matchesFilter(filePath, options);
+    }
+
+    /**
+     * Snapshot all stored chunks as lexical documents for BM25 indexing.
+     */
+    getLexicalDocuments(): Array<{ id: string; filePath: string; content: string }> {
+        const docs: Array<{ id: string; filePath: string; content: string }> = [];
+        for (const [chunkId, stored] of this.vectors) {
+            if (!stored.content || !stored.filePath) continue;
+            docs.push({ id: chunkId, filePath: stored.filePath, content: stored.content });
+        }
+        return docs;
     }
 
     /**
@@ -480,6 +515,7 @@ export class VectorStore {
 
         if (deletedCount > 0) {
             this.isDirty = true;
+            this.mutationVersion++;
         }
 
         return deletedCount;
@@ -494,6 +530,7 @@ export class VectorStore {
         }
         if (chunkIds.length > 0) {
             this.isDirty = true;
+            this.mutationVersion++;
         }
     }
 
@@ -527,6 +564,7 @@ export class VectorStore {
         this.vectors.clear();
         this.fileMtimes.clear();
         this.isDirty = true;
+        this.mutationVersion++;
         await this.save();
         console.log("Vector store cleared and saved.");
     }
@@ -574,6 +612,7 @@ export class VectorStore {
 
         if (deletedCount > 0) {
             this.isDirty = true;
+            this.mutationVersion++;
         }
 
         return deletedCount;

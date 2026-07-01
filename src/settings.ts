@@ -2,6 +2,7 @@ import { App, Modal, PluginSettingTab, Setting } from "obsidian";
 import MyPlugin from "./main";
 import type { IndexedFile } from "./indexer";
 import type { ChunkingStrategy } from "./indexer/text-splitter";
+import type { HybridStrategy } from "./indexer/embedding-manager";
 
 export interface ChatMessage {
     content: string;
@@ -23,6 +24,8 @@ export interface MyPluginSettings {
     chunkingStrategy: ChunkingStrategy;
     chunkSize: number;
     chunkOverlap: number;
+    hybridStrategy: HybridStrategy;
+    vectorWeight: number;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -38,7 +41,9 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     autoIndexChanges: true,
     chunkingStrategy: 'markdown',
     chunkSize: 1000,
-    chunkOverlap: 200
+    chunkOverlap: 200,
+    hybridStrategy: 'rrf',
+    vectorWeight: 0.6
 }
 
 /**
@@ -331,8 +336,32 @@ export class SampleSettingTab extends PluginSettingTab {
 		containerEl.createEl("h3", { text: "Search & Retrieval" });
 
 		new Setting(containerEl)
+			.setName('Hybrid fusion method')
+			.setDesc('How dense (vector) and keyword (BM25) results are combined. Reciprocal Rank Fusion is robust and recommended; weighted lets you bias toward vector or keyword matches.')
+			.addDropdown(dropdown => dropdown
+				.addOption('rrf', 'Reciprocal Rank Fusion (recommended)')
+				.addOption('weighted', 'Weighted sum')
+				.setValue(this.plugin.settings.hybridStrategy)
+				.onChange(async (value) => {
+					this.plugin.settings.hybridStrategy = value === 'weighted' ? 'weighted' : 'rrf';
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Vector weight (weighted mode)')
+			.setDesc('Only used with weighted fusion. 1.0 = pure vector similarity, 0.0 = pure keyword (BM25). The remainder is given to keyword matching.')
+			.addSlider(slider => slider
+				.setLimits(0, 100, 5)
+				.setValue(Math.round(this.plugin.settings.vectorWeight * 100))
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.vectorWeight = value / 100;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
 			.setName('Retrieval pool size')
-			.setDesc('Number of initial chunks to fetch for reranking. Higher values may improve accuracy but increase processing time.')
+			.setDesc('Number of initial chunks to fetch from each retriever before fusion. Higher values may improve accuracy but increase processing time.')
 			.addSlider(slider => slider
 				.setLimits(10, 100, 5)
 				.setValue(this.plugin.settings.retrievalPoolSize)
