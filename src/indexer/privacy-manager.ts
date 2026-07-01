@@ -158,20 +158,6 @@ export class PrivacyManager {
     }
 
     /**
-     * Get the list of default pattern descriptions
-     */
-    getDefaultPatternDescriptions(): string[] {
-        return DEFAULT_PATTERNS.map(p => p.description);
-    }
-
-    /**
-     * Get the count of custom patterns currently loaded
-     */
-    getCustomPatternCount(): number {
-        return this.customPatterns.length;
-    }
-
-    /**
      * Check if a file path is within an excluded folder
      * @param filePath The file path to check
      * @param excludedFolders Array of folder paths to exclude

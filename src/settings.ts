@@ -9,7 +9,6 @@ export interface ChatMessage {
 }
 
 export interface MyPluginSettings {
-    mySetting: string;
     chatHistory: ChatMessage[];
     openRouterApiKey: string;
     openRouterModel: string;
@@ -23,7 +22,6 @@ export interface MyPluginSettings {
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
-    mySetting: 'default',
     chatHistory: [],
     openRouterApiKey: '',
     openRouterModel: 'google/gemini-2.5-flash',
@@ -307,17 +305,6 @@ export class SampleSettingTab extends PluginSettingTab {
 
 		// ===== General Settings Section =====
 		containerEl.createEl("h3", { text: "General Settings" });
-
-		new Setting(containerEl)
-			.setName('Settings #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
 
 		new Setting(containerEl)
 			.setName('OpenRouter API Key')

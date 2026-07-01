@@ -273,16 +273,6 @@ export class EmbeddingManager {
     }
 
     /**
-     * Get embedding statistics
-     */
-    getStats(): { vectorCount: number; chunkCount: number } {
-        return {
-            vectorCount: this.vectorStore.getVectorCount(),
-            chunkCount: this.chunkManager.getTotalChunkCount()
-        };
-    }
-
-    /**
      * Simple delay helper
      */
     private delay(ms: number): Promise<void> {
@@ -374,27 +364,5 @@ export class EmbeddingManager {
         // Step 3: Re-sort by hybrid score and return top results
         scoredCandidates.sort((a, b) => b.score - a.score);
         return scoredCandidates.slice(0, limit);
-    }
-
-    /**
-     * Find similar chunks using cosine similarity (returns full Chunk objects)
-     */
-    async findSimilar(
-        queryText: string,
-        topK: number = 5
-    ): Promise<Array<{ chunk: Chunk; score: number }>> {
-        const searchResults = await this.search(queryText, topK, topK * 2);
-        
-        // Map search results back to Chunk objects
-        const results: Array<{ chunk: Chunk; score: number }> = [];
-        for (const result of searchResults) {
-            const chunks = this.chunkManager.getChunksForFile(result.filePath);
-            const chunk = chunks.find(c => c.id === result.chunkId);
-            if (chunk) {
-                results.push({ chunk, score: result.score });
-            }
-        }
-
-        return results;
     }
 }

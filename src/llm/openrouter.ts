@@ -92,17 +92,3 @@ export async function getEmbeddings(
         return { embeddings: [], error: errorMessage };
     }
 }
-
-/**
- * Get embedding for a single text
- */
-export async function getEmbedding(
-    apiKey: string,
-    text: string
-): Promise<{ embedding: number[] | null; error?: string }> {
-    const result = await getEmbeddings(apiKey, [text]);
-    if (result.error) {
-        return { embedding: null, error: result.error };
-    }
-    return { embedding: result.embeddings[0] ?? null };
-}

@@ -147,20 +147,4 @@ Note: No relevant context was found in the vault for this query. Answer based on
 
         return basePrompt + contextSection;
     }
-
-    /**
-     * Search for relevant context without generating a response
-     * Useful for debugging or showing sources separately
-     */
-    async getContext(
-        query: string,
-        limit: number = 5
-    ): Promise<Array<{ content: string; fileLink: string; score: number }>> {
-        const results = await this.embeddingManager.search(query, limit);
-        return results.map(r => ({
-            content: r.content,
-            fileLink: r.fileLink,
-            score: r.score
-        }));
-    }
 }

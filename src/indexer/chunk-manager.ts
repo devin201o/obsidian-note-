@@ -203,20 +203,4 @@ export class ChunkManager {
         return `[[${noteName}]]`;
     }
 
-    /**
-     * Search chunks by content
-     */
-    searchChunks(query: string): Chunk[] {
-        const lowerQuery = query.toLowerCase();
-        return this.getAllChunks().filter(chunk => 
-            chunk.content.toLowerCase().includes(lowerQuery)
-        );
-    }
-
-    /**
-     * Get splitter configuration
-     */
-    getSplitterConfig(): TextSplitterConfig {
-        return this.splitter.getConfig();
-    }
 }

@@ -128,29 +128,4 @@ export class VaultIndexer {
         return this.indexedFiles.length;
     }
 
-    /**
-     * Search indexed files by name
-     */
-    searchByName(query: string): IndexedFile[] {
-        const lowerQuery = query.toLowerCase();
-        return this.indexedFiles.filter(file => 
-            file.name.toLowerCase().includes(lowerQuery) ||
-            file.path.toLowerCase().includes(lowerQuery)
-        );
-    }
-
-    /**
-     * Get files by extension
-     */
-    getFilesByExtension(extension: string): IndexedFile[] {
-        return this.indexedFiles.filter(file => file.extension === extension);
-    }
-
-    /**
-     * Clear the index
-     */
-    clearIndex(): void {
-        this.indexedFiles = [];
-        this.lastIndexed = null;
-    }
 }
