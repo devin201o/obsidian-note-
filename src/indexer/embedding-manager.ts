@@ -2,7 +2,7 @@ import { Notice } from "obsidian";
 import { Chunk, ChunkManager } from "./chunk-manager";
 import { VectorStore, SearchOptions } from "./vector-store";
 import { LexicalIndex } from "./lexical-index";
-import { getEmbeddings } from "../llm/openrouter";
+import type { EmbeddingProvider } from "../llm/types";
 
 /**
  * How vector and lexical (BM25) rankings are combined.
@@ -56,7 +56,7 @@ export class EmbeddingManager {
     private chunkManager: ChunkManager;
     private vectorStore: VectorStore;
     private config: EmbeddingManagerConfig;
-    private apiKey: string = "";
+    private embeddingProvider: EmbeddingProvider | null = null;
     private lexicalIndex: LexicalIndex = new LexicalIndex();
     private hybridStrategy: HybridStrategy = "rrf";
     /** Weight of the vector component in "weighted" mode (0..1). */
@@ -73,10 +73,11 @@ export class EmbeddingManager {
     }
 
     /**
-     * Set the API key for embedding requests
+     * Set the backend used to generate embeddings. Swapped out whenever the
+     * user changes the embedding provider in settings.
      */
-    setApiKey(apiKey: string): void {
-        this.apiKey = apiKey;
+    setEmbeddingProvider(provider: EmbeddingProvider): void {
+        this.embeddingProvider = provider;
     }
 
     /**
@@ -111,8 +112,8 @@ export class EmbeddingManager {
             failed: 0
         };
 
-        if (!this.apiKey) {
-            return { ...result, error: "API key not set" };
+        if (!this.embeddingProvider) {
+            return { ...result, error: "Embedding provider not configured" };
         }
 
         if (chunks.length === 0) {
@@ -153,7 +154,7 @@ export class EmbeddingManager {
             const texts = batch.map(item => item.chunk.embedText);
 
             try {
-                const response = await getEmbeddings(this.apiKey, texts);
+                const response = await this.embeddingProvider.getEmbeddings(texts);
 
                 if (response.error) {
                     console.error(`Embedding batch error: ${response.error}`);
@@ -347,12 +348,12 @@ export class EmbeddingManager {
      * Get embedding vector for a query text
      */
     async getQueryEmbedding(queryText: string): Promise<number[] | null> {
-        if (!this.apiKey) {
-            console.error("API key not set");
+        if (!this.embeddingProvider) {
+            console.error("Embedding provider not configured");
             return null;
         }
 
-        const response = await getEmbeddings(this.apiKey, [queryText]);
+        const response = await this.embeddingProvider.getEmbeddings([queryText]);
         if (response.error || response.embeddings.length === 0) {
             console.error("Failed to get query embedding:", response.error);
             return null;

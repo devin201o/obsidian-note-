@@ -47,8 +47,8 @@ Your Note                                Your Question
 3. Embedding                          7. Hybrid Search
    (EmbeddingManager hashes             (EmbeddingManager queries the
    content to skip unchanged            VectorStore for dense/cosine
-   chunks, batches calls to the         matches AND the LexicalIndex for
-   OpenRouter embeddings API)           BM25 keyword matches, in parallel)
+   chunks, batches calls to your        matches AND the LexicalIndex for
+   configured embedding provider)       BM25 keyword matches, in parallel)
    │                                          │
    ▼                                          ▼
 4. Vector Storage                     8. Fusion (RRF or Weighted)
@@ -90,9 +90,24 @@ Your Note                                Your Question
 | `query-transformer` | `src/chat/query-transformer.ts` | Conversation-aware query rewriting and HyDE document generation. |
 | `reranker` | `src/chat/reranker.ts` | Optional LLM-based reranking of the fused candidate pool. |
 | `RAGEngine` | `src/chat/rag-engine.ts` | Orchestrates the full pipeline end-to-end and builds the final prompt. |
-| `openrouter` | `src/llm/openrouter.ts` | Talks to the OpenRouter API for both embeddings and chat completions. |
+| `llm/providers` | `src/llm/providers/` | Talks to whichever AI provider is configured (OpenRouter, OpenAI, or a local Ollama server) for chat and embeddings, behind a shared interface. |
+| `llm/factory` | `src/llm/factory.ts` | Builds the configured chat/embedding provider from settings, and checks whether a provider has enough configuration to use. |
 
 Because retrieval is hybrid, a query that only shares exact keywords with a note (e.g. a project codename) is just as retrievable as one that's only semantically similar — the two ranked lists are always fused together rather than one replacing the other.
+
+---
+
+## Supported AI Providers
+
+Obsidian note+ can talk to more than one AI service, and **chat and embeddings are configured independently** — you can, for example, use a hosted model for chat but run embeddings locally for free with Ollama. Pick a provider for each under **Settings → Obsidian note+ → AI provider**.
+
+| Provider | Needs | Chat | Embeddings | Notes |
+| --- | --- | --- | --- | --- |
+| **OpenRouter** | API key from [openrouter.ai](https://openrouter.ai) | ✅ | ✅ | Default. One key gives access to many hosted chat/embedding models by ID (e.g. `openai/gpt-4o`, `anthropic/claude-3.5-sonnet`). |
+| **OpenAI** | API key from [platform.openai.com](https://platform.openai.com) | ✅ | ✅ | Talks to OpenAI's API directly instead of through OpenRouter. |
+| **Ollama** | [Ollama](https://ollama.com) installed and running locally | ✅ | ✅ | No API key and no data leaves your machine, but requires enough local compute to run a model. Defaults to `http://localhost:11434`. |
+
+Every provider you enter a key for is remembered independently, so switching back and forth between them (e.g. to compare answer quality) doesn't lose your other configuration.
 
 ---
 
@@ -140,15 +155,17 @@ This runs a type-check and produces `main.js` at the plugin root using esbuild. 
 
 ### First-Launch Configuration
 
+New to the plugin? The settings tab has a **Open user guide** button (top of **Settings → Obsidian note+**) with a plain-language walkthrough and a glossary of the jargon used below — worth a look before diving into the steps here.
+
 1. **Enable**: Go to **Settings → Community plugins** and toggle on **Obsidian note+**.
-2. **API key**: Open the plugin settings and enter your **OpenRouter API key** under **General settings**. Get one at [openrouter.ai](https://openrouter.ai).
-3. **Model selection**: Choose your preferred LLM under **OpenRouter chat model** (default is `google/gemini-2.5-flash`). Any OpenRouter-supported chat model ID works, e.g. `openai/gpt-4o`, `anthropic/claude-3.5-sonnet`.
+2. **Choose providers**: Open the plugin settings. Under **AI provider**, pick a **Chat provider** and an **Embedding provider** (see [Supported AI Providers](#supported-ai-providers) above — they can be the same service or different ones) and enter the required API key or, for Ollama, the base URL of your local server.
+3. **Model selection**: Each provider has its own **Chat model** / **Embedding model** field pre-filled with a sensible default (e.g. `google/gemini-2.5-flash` for OpenRouter chat). Change it to any model ID your chosen provider supports.
 4. **(Optional) tune retrieval**: Review the **Search & Retrieval** and **Query Enhancement** sections in settings — the defaults (hybrid RRF fusion, neighbor expansion, query rewriting) work well for most vaults, but larger vaults may benefit from a bigger retrieval pool or the LLM reranker.
 5. **Initial indexing**: Open the Command Palette (`Ctrl/Cmd + P`) and run:
 
    `Obsidian note+: Rebuild Index`
 
-   This performs the initial chunking, redaction, and embedding of your vault. Progress and results are shown via notices; large vaults may take a few minutes depending on your embedding API's rate limits.
+   This performs the initial chunking, redaction, and embedding of your vault. Progress and results are shown via notices; large vaults may take a few minutes depending on your embedding provider's rate limits (or local compute, for Ollama).
 6. **Open the chatbot**: Click the chat bubble icon in the left ribbon, or run the **Toggle Chatbot** ribbon action, to open the chat view in the right sidebar.
 
 ---
@@ -167,6 +184,7 @@ All commands are available from the Command Palette (`Ctrl/Cmd + P`), prefixed w
 | **Purge Excluded Folder Vectors** | Instantly removes vectors belonging to folders added to your **Excluded folders** setting, without a full rebuild. |
 | **Test Search** | Debug tool: opens a prompt for a query and logs the raw hybrid search results (score, source, content preview) to the console. |
 | **Debug: Inspect File Chunks** | Logs how the currently active note was split into chunks, including chunk IDs, headings, and content previews, to the console. |
+| **Open User Guide** | Opens the in-app, plain-language walkthrough and glossary (also available via a button at the top of the settings tab). |
 
 ### Settings tab actions
 
@@ -196,7 +214,7 @@ The plugin follows a rigorous data pipeline to ensure both performance and priva
 This plugin is designed to keep your data as safe as possible.
 
 * **Local Processing**: Chunking, redaction, lexical (BM25) search, fusion, and context packing all happen entirely on your device.
-* **External Access**: Only redacted text chunks, your chat queries, and (if enabled) the intermediate query-rewriting/HyDE/reranking prompts are sent to OpenRouter.
+* **External Access**: Only redacted text chunks, your chat queries, and (if enabled) the intermediate query-rewriting/HyDE/reranking prompts are sent to whichever AI provider(s) you've configured (OpenRouter, OpenAI, or your own local Ollama server, which never leaves your machine at all).
 * **No Analytics**: This plugin does not track your usage or collect telemetry.
 
 ---

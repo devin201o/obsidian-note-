@@ -271,6 +271,13 @@ If your plugin does not need CSS, delete this file.
     border: none;
 }
 
+/* Settings section descriptions */
+.settings-section-desc {
+    margin: -4px 0 12px 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
 /* Vault Indexer Settings Styles */
 .index-status-container {
     margin-bottom: 20px;
@@ -428,6 +435,40 @@ If your plugin does not need CSS, delete this file.
 .indexed-file-size {
     color: var(--text-muted);
     font-size: 0.85em;
+}
+
+/* User Guide Modal Styles */
+.user-guide-modal {
+    max-width: 640px;
+}
+
+.user-guide-modal h3 {
+    margin-bottom: 6px;
+}
+
+.user-guide-steps,
+.user-guide-tips {
+    padding-left: 20px;
+}
+
+.user-guide-steps li,
+.user-guide-tips li {
+    margin-bottom: 8px;
+}
+
+.user-guide-glossary-intro {
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.user-guide-glossary dt {
+    font-weight: 600;
+    margin-top: 10px;
+}
+
+.user-guide-glossary dd {
+    margin: 2px 0 0 0;
+    color: var(--text-muted);
 }
 
 /* Context Picker Styles */

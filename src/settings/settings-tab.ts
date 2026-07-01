@@ -1,169 +1,18 @@
-import { App, Modal, PluginSettingTab, Setting } from "obsidian";
-import MyPlugin from "./main";
-import type { IndexedFile } from "./indexer";
-import type { ChunkingStrategy } from "./indexer/text-splitter";
-import type { HybridStrategy } from "./indexer/embedding-manager";
-
-export interface ChatMessage {
-    content: string;
-    sender: "user" | "bot";
-    timestamp: string;
-}
-
-export interface MyPluginSettings {
-    chatHistory: ChatMessage[];
-    openRouterApiKey: string;
-    openRouterModel: string;
-    indexMarkdownOnly: boolean;
-    enableRedaction: boolean;
-    customRedactionPatterns: string;
-    retrievalPoolSize: number;
-    maxContextChunks: number;
-    excludedFolders: string[];
-    autoIndexChanges: boolean;
-    chunkingStrategy: ChunkingStrategy;
-    chunkSize: number;
-    chunkOverlap: number;
-    hybridStrategy: HybridStrategy;
-    vectorWeight: number;
-    relevanceThreshold: number;
-    contextTokenBudget: number;
-    neighborExpansion: boolean;
-    queryRewriting: boolean;
-    useHyde: boolean;
-    useReranker: boolean;
-    rerankCandidates: number;
-}
-
-export const DEFAULT_SETTINGS: MyPluginSettings = {
-    chatHistory: [],
-    openRouterApiKey: '',
-    openRouterModel: 'google/gemini-2.5-flash',
-    indexMarkdownOnly: true,
-    enableRedaction: true,
-    customRedactionPatterns: '',
-    retrievalPoolSize: 50,
-    maxContextChunks: 15,
-    excludedFolders: [],
-    autoIndexChanges: true,
-    chunkingStrategy: 'markdown',
-    chunkSize: 1000,
-    chunkOverlap: 200,
-    hybridStrategy: 'rrf',
-    vectorWeight: 0.6,
-    relevanceThreshold: 0.5,
-    contextTokenBudget: 6000,
-    neighborExpansion: true,
-    queryRewriting: true,
-    useHyde: false,
-    useReranker: false,
-    rerankCandidates: 20
-}
+import { App, PluginSettingTab, Setting } from "obsidian";
+import type MyPlugin from "../main";
+import { IndexedFilesModal } from "./indexed-files-modal";
+import { UserGuideModal } from "./user-guide-modal";
+import { CHAT_PROVIDER_LABELS, EMBEDDING_PROVIDER_LABELS } from "../llm/factory";
+import type { ChatProviderId, EmbeddingProviderId } from "../llm/types";
 
 /**
- * Modal to display the list of indexed files
+ * Render a section heading with a one-line, plain-language description
+ * underneath it, so people who aren't familiar with RAG/embeddings jargon
+ * still know what a section is for at a glance.
  */
-export class IndexedFilesModal extends Modal {
-    private files: IndexedFile[];
-    private searchQuery: string = "";
-
-    constructor(app: App, files: IndexedFile[]) {
-        super(app);
-        this.files = files;
-    }
-
-    onOpen() {
-        const { contentEl } = this;
-        contentEl.empty();
-        contentEl.addClass("indexed-files-modal");
-
-        // Header
-        contentEl.createEl("h2", { text: "Indexed Files" });
-        contentEl.createEl("p", { 
-            text: `Total files: ${this.files.length}`,
-            cls: "indexed-files-count"
-        });
-
-        // Search input
-        const searchContainer = contentEl.createDiv({ cls: "indexed-files-search" });
-        const searchInput = searchContainer.createEl("input", {
-            type: "text",
-            placeholder: "Search files...",
-            cls: "indexed-files-search-input"
-        });
-        searchInput.addEventListener("input", (e) => {
-            this.searchQuery = (e.target as HTMLInputElement).value;
-            this.renderFileList(fileListEl);
-        });
-
-        // File list container
-        const fileListEl = contentEl.createDiv({ cls: "indexed-files-list" });
-        this.renderFileList(fileListEl);
-    }
-
-    private renderFileList(container: HTMLElement) {
-        container.empty();
-
-        const filteredFiles = this.searchQuery
-            ? this.files.filter(f => 
-                f.name.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
-                f.path.toLowerCase().includes(this.searchQuery.toLowerCase())
-            )
-            : this.files;
-
-        if (filteredFiles.length === 0) {
-            container.createEl("p", { 
-                text: this.searchQuery ? "No files match your search." : "No files indexed yet.",
-                cls: "indexed-files-empty"
-            });
-            return;
-        }
-
-        // Show filtered count if searching
-        if (this.searchQuery) {
-            container.createEl("p", {
-                text: `Showing ${filteredFiles.length} of ${this.files.length} files`,
-                cls: "indexed-files-filter-count"
-            });
-        }
-
-        const listEl = container.createEl("ul", { cls: "indexed-files-ul" });
-        
-        for (const file of filteredFiles) {
-            const listItem = listEl.createEl("li", { cls: "indexed-file-item" });
-            
-            const fileInfo = listItem.createDiv({ cls: "indexed-file-info" });
-            fileInfo.createEl("span", { 
-                text: file.name,
-                cls: "indexed-file-name"
-            });
-            fileInfo.createEl("span", { 
-                text: file.path,
-                cls: "indexed-file-path"
-            });
-
-            const fileMeta = listItem.createDiv({ cls: "indexed-file-meta" });
-            fileMeta.createEl("span", {
-                text: `.${file.extension}`,
-                cls: "indexed-file-ext"
-            });
-            fileMeta.createEl("span", {
-                text: this.formatFileSize(file.size),
-                cls: "indexed-file-size"
-            });
-        }
-    }
-
-    private formatFileSize(bytes: number): string {
-        if (bytes < 1024) return `${bytes} B`;
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    }
-
-    onClose() {
-        const { contentEl } = this;
-        contentEl.empty();
-    }
+function addSectionHeading(containerEl: HTMLElement, title: string, description: string): void {
+	containerEl.createEl("h3", { text: title });
+	containerEl.createEl("p", { text: description, cls: "settings-section-desc" });
 }
 
 export class SampleSettingTab extends PluginSettingTab {
@@ -181,8 +30,62 @@ export class SampleSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
+		new Setting(containerEl)
+			.setName('New to Obsidian note+?')
+			.setDesc('Read a plain-language walkthrough of what this plugin does, how to set it up, and what the jargon below means.')
+			.addButton(button => button
+				.setButtonText('Open user guide')
+				.onClick(() => new UserGuideModal(this.app).open()));
+
+		// ===== AI Provider Section =====
+		addSectionHeading(
+			containerEl,
+			"AI provider",
+			"Choose which AI service powers chat and note search, and enter its credentials. Chat and search can use different providers."
+		);
+
+		containerEl.createEl("h4", { text: "Chat" });
+		new Setting(containerEl)
+			.setName('Chat provider')
+			.setDesc('Which AI service answers your questions in the chat view.')
+			.addDropdown(dropdown => {
+				for (const id of Object.keys(CHAT_PROVIDER_LABELS) as ChatProviderId[]) {
+					dropdown.addOption(id, CHAT_PROVIDER_LABELS[id]);
+				}
+				dropdown
+					.setValue(this.plugin.settings.chatProvider)
+					.onChange(async (value) => {
+						this.plugin.settings.chatProvider = value as ChatProviderId;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+		this.renderChatProviderFields(containerEl);
+
+		containerEl.createEl("h4", { text: "Embeddings" });
+		new Setting(containerEl)
+			.setName('Embedding provider')
+			.setDesc('Which AI service turns your notes into searchable vectors during indexing. Can be a different service than chat (for example, a local Ollama model here with a hosted chat model above).')
+			.addDropdown(dropdown => {
+				for (const id of Object.keys(EMBEDDING_PROVIDER_LABELS) as EmbeddingProviderId[]) {
+					dropdown.addOption(id, EMBEDDING_PROVIDER_LABELS[id]);
+				}
+				dropdown
+					.setValue(this.plugin.settings.embeddingProvider)
+					.onChange(async (value) => {
+						this.plugin.settings.embeddingProvider = value as EmbeddingProviderId;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+		this.renderEmbeddingProviderFields(containerEl);
+
 		// ===== Vault Indexer Section =====
-		containerEl.createEl("h3", { text: "Vault Indexer" });
+		addSectionHeading(
+			containerEl,
+			"Vault indexer",
+			"Controls which files get scanned and how the plugin reacts as you edit your vault."
+		);
 
 		// Index status display
 		const indexStatusContainer = containerEl.createDiv({ cls: "index-status-container" });
@@ -252,7 +155,11 @@ export class SampleSettingTab extends PluginSettingTab {
 				}));
 
 		// ===== Folder Exclusion Section =====
-		containerEl.createEl("h3", { text: "Folder Exclusion" });
+		addSectionHeading(
+			containerEl,
+			"Folder exclusion",
+			"Keep specific folders out of search and indexing entirely."
+		);
 
 		new Setting(containerEl)
 			.setName('Excluded folders')
@@ -274,7 +181,11 @@ export class SampleSettingTab extends PluginSettingTab {
 			});
 
 		// ===== Privacy & Redaction Section =====
-		containerEl.createEl("h3", { text: "Privacy & Redaction" });
+		addSectionHeading(
+			containerEl,
+			"Privacy & redaction",
+			"Automatically strip sensitive data like API keys and emails before anything is indexed."
+		);
 
 		new Setting(containerEl)
 			.setName('Enable redaction')
@@ -303,7 +214,11 @@ export class SampleSettingTab extends PluginSettingTab {
 			});
 
 		// ===== Chunking Section =====
-		containerEl.createEl("h3", { text: "Chunking" });
+		addSectionHeading(
+			containerEl,
+			"Chunking",
+			"Controls how notes are split into pieces before being turned into embeddings. Most people can leave these at the defaults."
+		);
 
 		new Setting(containerEl)
 			.setName('Chunking strategy')
@@ -347,7 +262,11 @@ export class SampleSettingTab extends PluginSettingTab {
 				}));
 
 		// ===== Search & Retrieval Section =====
-		containerEl.createEl("h3", { text: "Search & Retrieval" });
+		addSectionHeading(
+			containerEl,
+			"Search & retrieval",
+			"Fine-tunes how the plugin finds and ranks the most relevant notes for your question."
+		);
 
 		new Setting(containerEl)
 			.setName('Hybrid fusion method')
@@ -432,7 +351,11 @@ export class SampleSettingTab extends PluginSettingTab {
 				}));
 
 		// ===== Query Enhancement Section =====
-		containerEl.createEl("h3", { text: "Query Enhancement" });
+		addSectionHeading(
+			containerEl,
+			"Query enhancement",
+			"Optional extra AI steps that can improve answer quality at the cost of a bit more time and tokens per message."
+		);
 
 		new Setting(containerEl)
 			.setName('Conversation-aware query rewriting')
@@ -476,31 +399,168 @@ export class SampleSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// ===== General Settings Section =====
-		containerEl.createEl("h3", { text: "General Settings" });
+	}
 
+	/** Render the API key/base URL + model fields for the selected chat provider. */
+	private renderChatProviderFields(containerEl: HTMLElement): void {
+		switch (this.plugin.settings.chatProvider) {
+			case 'openai':
+				this.addApiKeySetting(
+					containerEl,
+					'OpenAI API key',
+					'Get one at platform.openai.com.',
+					'sk-...',
+					() => this.plugin.settings.openAIApiKey,
+					(value) => { this.plugin.settings.openAIApiKey = value; }
+				);
+				this.addModelSetting(
+					containerEl,
+					'Chat model',
+					'The model ID to use for chat (e.g., gpt-4o-mini, gpt-4o).',
+					'gpt-4o-mini',
+					() => this.plugin.settings.openAIModel,
+					(value) => { this.plugin.settings.openAIModel = value; }
+				);
+				break;
+			case 'ollama':
+				this.addOllamaBaseUrlSetting(containerEl);
+				this.addModelSetting(
+					containerEl,
+					'Chat model',
+					'The name of a model you have pulled locally (e.g., llama3.1, mistral, qwen2.5).',
+					'llama3.1',
+					() => this.plugin.settings.ollamaModel,
+					(value) => { this.plugin.settings.ollamaModel = value; }
+				);
+				break;
+			case 'openrouter':
+			default:
+				this.addApiKeySetting(
+					containerEl,
+					'OpenRouter API key',
+					'Get one at openrouter.ai.',
+					'sk-or-...',
+					() => this.plugin.settings.openRouterApiKey,
+					(value) => { this.plugin.settings.openRouterApiKey = value; }
+				);
+				this.addModelSetting(
+					containerEl,
+					'Chat model',
+					'The model ID to use for chat (e.g., google/gemini-2.5-flash, openai/gpt-4o, anthropic/claude-3.5-sonnet).',
+					'google/gemini-2.5-flash',
+					() => this.plugin.settings.openRouterModel,
+					(value) => { this.plugin.settings.openRouterModel = value; }
+				);
+				break;
+		}
+	}
+
+	/** Render the API key/base URL + model fields for the selected embedding provider. */
+	private renderEmbeddingProviderFields(containerEl: HTMLElement): void {
+		switch (this.plugin.settings.embeddingProvider) {
+			case 'openai':
+				this.addApiKeySetting(
+					containerEl,
+					'OpenAI API key',
+					'Get one at platform.openai.com.',
+					'sk-...',
+					() => this.plugin.settings.openAIApiKey,
+					(value) => { this.plugin.settings.openAIApiKey = value; }
+				);
+				this.addModelSetting(
+					containerEl,
+					'Embedding model',
+					'The model ID to use for embeddings (e.g., text-embedding-3-small).',
+					'text-embedding-3-small',
+					() => this.plugin.settings.openAIEmbeddingModel,
+					(value) => { this.plugin.settings.openAIEmbeddingModel = value; }
+				);
+				break;
+			case 'ollama':
+				this.addOllamaBaseUrlSetting(containerEl);
+				this.addModelSetting(
+					containerEl,
+					'Embedding model',
+					'The name of a local embedding model you have pulled (e.g., nomic-embed-text).',
+					'nomic-embed-text',
+					() => this.plugin.settings.ollamaEmbeddingModel,
+					(value) => { this.plugin.settings.ollamaEmbeddingModel = value; }
+				);
+				break;
+			case 'openrouter':
+			default:
+				this.addApiKeySetting(
+					containerEl,
+					'OpenRouter API key',
+					'Get one at openrouter.ai.',
+					'sk-or-...',
+					() => this.plugin.settings.openRouterApiKey,
+					(value) => { this.plugin.settings.openRouterApiKey = value; }
+				);
+				this.addModelSetting(
+					containerEl,
+					'Embedding model',
+					'The model ID to use for embeddings (e.g., openai/text-embedding-3-small).',
+					'openai/text-embedding-3-small',
+					() => this.plugin.settings.openRouterEmbeddingModel,
+					(value) => { this.plugin.settings.openRouterEmbeddingModel = value; }
+				);
+				break;
+		}
+	}
+
+	private addApiKeySetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
+		placeholder: string,
+		getValue: () => string,
+		setValue: (value: string) => void
+	): void {
 		new Setting(containerEl)
-			.setName('OpenRouter API Key')
-			.setDesc('Enter your OpenRouter API key. Get one at openrouter.ai')
+			.setName(name)
+			.setDesc(desc)
 			.addText(text => {
-				text.setPlaceholder('sk-or-...')
-					.setValue(this.plugin.settings.openRouterApiKey)
+				text.setPlaceholder(placeholder)
+					.setValue(getValue())
 					.onChange(async (value) => {
-						this.plugin.settings.openRouterApiKey = value;
+						setValue(value);
 						await this.plugin.saveSettings();
 					});
 				text.inputEl.type = 'password';
 				return text;
 			});
+	}
 
+	private addModelSetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
+		placeholder: string,
+		getValue: () => string,
+		setValue: (value: string) => void
+	): void {
 		new Setting(containerEl)
-			.setName('OpenRouter Chat Model')
-			.setDesc('The model ID to use for chat (e.g., google/gemini-2.5-flash, openai/gpt-4o, anthropic/claude-3.5-sonnet)')
+			.setName(name)
+			.setDesc(desc)
 			.addText(text => text
-				.setPlaceholder('google/gemini-2.5-flash')
-				.setValue(this.plugin.settings.openRouterModel)
+				.setPlaceholder(placeholder)
+				.setValue(getValue())
 				.onChange(async (value) => {
-					this.plugin.settings.openRouterModel = value;
+					setValue(value);
+					await this.plugin.saveSettings();
+				}));
+	}
+
+	private addOllamaBaseUrlSetting(containerEl: HTMLElement): void {
+		new Setting(containerEl)
+			.setName('Ollama base URL')
+			.setDesc('Where your local Ollama server is running. No API key is needed, but Ollama must be running and reachable at this address.')
+			.addText(text => text
+				.setPlaceholder('http://localhost:11434')
+				.setValue(this.plugin.settings.ollamaBaseUrl)
+				.onChange(async (value) => {
+					this.plugin.settings.ollamaBaseUrl = value;
 					await this.plugin.saveSettings();
 				}));
 	}

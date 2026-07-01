@@ -4,6 +4,7 @@ import type MyPlugin from "../main";
 import type { ChatMessage } from "../settings";
 import type { RAGEngine } from "../chat/rag-engine";
 import type { SearchOptions } from "../indexer/vector-store";
+import { isChatProviderConfigured, isEmbeddingProviderConfigured } from "../llm/factory";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 
@@ -161,9 +162,17 @@ export class ChatbotView extends ItemView {
         const content = this.inputEl.value.trim();
         if (!content) return;
 
-        // Check if API key is set
-        if (!this.plugin.settings.openRouterApiKey) {
-            new Notice("Please set your OpenRouter API key in **Settings → obsidian note+**");
+        // Check that a chat provider is configured
+        if (!isChatProviderConfigured(this.plugin.settings)) {
+            new Notice("Please configure an AI provider in Settings → obsidian note+");
+            return;
+        }
+
+        // Check that an embedding provider is configured too. Without it, search
+        // silently returns no context and the model answers from general
+        // knowledge, which is easy to mistake for an answer based on your notes.
+        if (!isEmbeddingProviderConfigured(this.plugin.settings)) {
+            new Notice("Please configure an embedding provider in Settings → obsidian note+, then run 'Rebuild Index'.");
             return;
         }
 
