@@ -118,19 +118,13 @@ export class EmbeddingManager {
                     continue;
                 }
 
-                // Save each embedding
+                // Save each embedding (content/filePath/fileLink are not duplicated here;
+                // they're already held in memory by the ChunkManager and re-derived on demand)
                 for (let j = 0; j < batch.length; j++) {
                     const embedding = response.embeddings[j];
                     const item = batch[j];
                     if (embedding && item) {
-                        this.vectorStore.saveVector(
-                            item.chunk.id, 
-                            embedding, 
-                            item.hash,
-                            item.chunk.content,
-                            item.chunk.filePath,
-                            item.chunk.fileLink
-                        );
+                        this.vectorStore.saveVector(item.chunk.id, embedding, item.hash);
                         result.processed++;
                     } else {
                         result.failed++;
@@ -222,26 +216,15 @@ export class EmbeddingManager {
             return;
         }
 
-        // Calculate new file link from new path
-        const newFileName = newPath.replace(/\.md$/, "").split("/").pop() ?? newPath;
-        const newFileLink = `[[${newFileName}]]`;
-
-        // For each old ID, create a new entry with the updated path
+        // For each old ID, create a new entry under the updated path
         for (const oldId of oldIds) {
             const stored = this.vectorStore.getVector(oldId);
             if (stored) {
                 // Extract the chunk index from the old ID
                 const index = oldId.substring(oldPath.length + 2); // +2 for "::"
                 const newId = `${newPath}::${index}`;
-                
-                this.vectorStore.saveVector(
-                    newId, 
-                    stored.vector, 
-                    stored.contentHash,
-                    stored.content,
-                    newPath,
-                    newFileLink
-                );
+
+                this.vectorStore.saveVector(newId, stored.vector, stored.contentHash);
             }
         }
 
@@ -288,7 +271,10 @@ export class EmbeddingManager {
     }
 
     /**
-     * Search for similar chunks using the VectorStore search
+     * Search for similar chunks using the VectorStore search.
+     * The VectorStore only tracks vectors + content hashes; content and fileLink
+     * are re-derived here from the ChunkManager (already held in memory) instead
+     * of being duplicated on disk.
      * @param queryText The text to search for
      * @param limit Maximum number of results
      * @param options Optional filters for files, folders, or tags
@@ -303,7 +289,24 @@ export class EmbeddingManager {
             return [];
         }
 
-        return this.vectorStore.search(queryVector, limit, options);
+        const rawResults = this.vectorStore.search(queryVector, limit, options);
+
+        const results: Array<{ chunkId: string; content: string; filePath: string; fileLink: string; score: number }> = [];
+        for (const raw of rawResults) {
+            const chunk = this.findChunkById(raw.chunkId, raw.filePath);
+            // Skip results whose chunk no longer exists (e.g. file changed since last "Rebuild Index")
+            if (chunk) {
+                results.push({
+                    chunkId: raw.chunkId,
+                    content: chunk.content,
+                    filePath: chunk.filePath,
+                    fileLink: chunk.fileLink,
+                    score: raw.score
+                });
+            }
+        }
+
+        return results;
     }
 
     /**
@@ -318,13 +321,19 @@ export class EmbeddingManager {
         // Map search results back to Chunk objects
         const results: Array<{ chunk: Chunk; score: number }> = [];
         for (const result of searchResults) {
-            const chunks = this.chunkManager.getChunksForFile(result.filePath);
-            const chunk = chunks.find(c => c.id === result.chunkId);
+            const chunk = this.findChunkById(result.chunkId, result.filePath);
             if (chunk) {
                 results.push({ chunk, score: result.score });
             }
         }
 
         return results;
+    }
+
+    /**
+     * Look up a chunk by ID within a specific file's chunks
+     */
+    private findChunkById(chunkId: string, filePath: string): Chunk | undefined {
+        return this.chunkManager.getChunksForFile(filePath).find(c => c.id === chunkId);
     }
 }

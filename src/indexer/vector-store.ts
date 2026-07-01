@@ -1,4 +1,4 @@
-import { App, Plugin } from "obsidian";
+import { App, normalizePath, Plugin } from "obsidian";
 
 /**
  * Options for filtering search results
@@ -13,19 +13,19 @@ export interface SearchOptions {
 }
 
 /**
- * Stored vector data for a chunk
+ * Stored vector data for a chunk.
+ * Intentionally minimal: the chunk's text content and derived fields (file path,
+ * WikiLink) already live in memory in the ChunkManager and are cheap to
+ * recompute, so we avoid persisting a second copy of the vault's text here.
+ * Keeping this shape lean is what keeps the on-disk/in-memory footprint of the
+ * embedding store proportional to "vector count * dimensions" instead of
+ * "vector count * (dimensions + full chunk text)".
  */
 export interface StoredVector {
     /** The embedding vector */
     vector: number[];
     /** Hash of the content to detect changes */
     contentHash: string;
-    /** The actual text content of the chunk */
-    content: string;
-    /** The file path this chunk belongs to */
-    filePath: string;
-    /** WikiLink format for LLM reference */
-    fileLink: string;
 }
 
 /**
@@ -34,12 +34,8 @@ export interface StoredVector {
 export interface SearchResult {
     /** The chunk ID */
     chunkId: string;
-    /** The text content of the chunk */
-    content: string;
-    /** The file path */
+    /** The file path, derived from the chunk ID */
     filePath: string;
-    /** WikiLink format */
-    fileLink: string;
     /** Cosine similarity score (0-1) */
     score: number;
 }
@@ -52,22 +48,55 @@ export interface VectorStoreData {
     vectors: Record<string, StoredVector>;
 }
 
-const VECTOR_STORE_VERSION = 1;
-const VECTOR_STORE_FILE = "embeddings.json";
+/** Bumped because the persisted shape and storage location both changed (see below). */
+const VECTOR_STORE_VERSION = 2;
+/** Dedicated file inside the plugin's own config directory, separate from data.json/settings. */
+const VECTOR_STORE_FILE = "vector-store.json";
+/** Number of decimal places kept for each embedding component; more than enough precision for cosine similarity. */
+const VECTOR_PRECISION = 6;
+
+/**
+ * Chunk IDs are always formatted as "filePath::chunkIndex". Extract the file path portion.
+ */
+function getFilePathFromChunkId(chunkId: string): string {
+    const separatorIndex = chunkId.lastIndexOf("::");
+    return separatorIndex === -1 ? chunkId : chunkId.substring(0, separatorIndex);
+}
+
+/**
+ * Round a vector's components to a fixed precision to shrink JSON size without
+ * meaningfully affecting cosine-similarity accuracy.
+ */
+function roundVector(vector: number[]): number[] {
+    const factor = 10 ** VECTOR_PRECISION;
+    return vector.map(value => Math.round(value * factor) / factor);
+}
 
 /**
  * VectorStore manages persistent storage of embedding vectors.
- * Uses Obsidian's plugin data API for persistence.
+ *
+ * Embeddings are persisted to their own file (`vector-store.json`) inside the
+ * plugin's config directory rather than being merged into Obsidian's
+ * `data.json` (which also holds plugin settings). For a large vault this file
+ * can grow to hold thousands of vectors; keeping it out of `data.json` means:
+ *  - Loading/saving plugin settings never has to parse/serialize embeddings.
+ *  - Saving embeddings after indexing a single file no longer requires
+ *    re-reading and re-writing the *entire* settings blob.
  */
 export class VectorStore {
     private plugin: Plugin;
     private app: App;
     private vectors: Map<string, StoredVector> = new Map();
     private isDirty: boolean = false;
+    private storePath: string;
+    /** True if legacy/incompatible data was found and discarded during load, requiring a re-embed. */
+    private migratedFromLegacy: boolean = false;
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
         this.app = plugin.app;
+        const pluginDir = plugin.manifest.dir ?? `.obsidian/plugins/${plugin.manifest.id}`;
+        this.storePath = normalizePath(`${pluginDir}/${VECTOR_STORE_FILE}`);
     }
 
     /**
@@ -75,18 +104,48 @@ export class VectorStore {
      */
     async load(): Promise<void> {
         try {
-            const data = await this.plugin.loadData();
-            if (data?.vectorStore) {
-                const storeData = data.vectorStore as VectorStoreData;
+            if (await this.app.vault.adapter.exists(this.storePath)) {
+                const raw = await this.app.vault.adapter.read(this.storePath);
+                const storeData = JSON.parse(raw) as VectorStoreData;
+
                 if (storeData.version === VECTOR_STORE_VERSION && storeData.vectors) {
                     this.vectors = new Map(Object.entries(storeData.vectors));
                     console.log(`Loaded ${this.vectors.size} vectors from storage`);
+                    return;
                 }
+
+                // Incompatible version on disk; discard and require a re-embed rather than
+                // trying to load a shape we no longer understand.
+                console.log("Vector store file has an incompatible version; it will be rebuilt.");
+                this.migratedFromLegacy = true;
+            } else {
+                // Check for pre-migration data that used to live inside data.json.
+                await this.migrateLegacyDataJsonStore();
             }
         } catch (error) {
             console.error("Failed to load vector store:", error);
             this.vectors = new Map();
         }
+    }
+
+    /**
+     * One-time migration: older versions of this plugin stored embeddings (plus a
+     * duplicate copy of every chunk's text) inside Obsidian's shared `data.json`
+     * settings file. If that old key is found, drop it (so `data.json` shrinks
+     * back down to just settings) and flag that embeddings need to be rebuilt in
+     * the new dedicated store.
+     */
+    private async migrateLegacyDataJsonStore(): Promise<void> {
+        const existingData = (await this.plugin.loadData()) as Record<string, unknown> | null;
+        if (!existingData || !("vectorStore" in existingData)) {
+            return;
+        }
+
+        console.log("Found legacy embeddings inside data.json; migrating to a dedicated store.");
+        this.migratedFromLegacy = true;
+
+        const { vectorStore: _legacyVectorStore, ...settingsOnly } = existingData;
+        await this.plugin.saveData(settingsOnly);
     }
 
     /**
@@ -98,18 +157,12 @@ export class VectorStore {
         }
 
         try {
-            // Load existing plugin data to preserve other settings
-            const existingData = await this.plugin.loadData() ?? {};
-            
             const storeData: VectorStoreData = {
                 version: VECTOR_STORE_VERSION,
                 vectors: Object.fromEntries(this.vectors)
             };
 
-            await this.plugin.saveData({
-                ...existingData,
-                vectorStore: storeData
-            });
+            await this.app.vault.adapter.write(this.storePath, JSON.stringify(storeData));
 
             this.isDirty = false;
             console.log(`Saved ${this.vectors.size} vectors to storage`);
@@ -134,17 +187,10 @@ export class VectorStore {
     }
 
     /**
-     * Save a vector for a chunk with its content
+     * Save a vector for a chunk
      */
-    saveVector(
-        chunkId: string, 
-        vector: number[], 
-        contentHash: string,
-        content: string,
-        filePath: string,
-        fileLink: string
-    ): void {
-        this.vectors.set(chunkId, { vector, contentHash, content, filePath, fileLink });
+    saveVector(chunkId: string, vector: number[], contentHash: string): void {
+        this.vectors.set(chunkId, { vector: roundVector(vector), contentHash });
         this.isDirty = true;
     }
 
@@ -278,24 +324,15 @@ export class VectorStore {
         const results: SearchResult[] = [];
 
         for (const [chunkId, stored] of this.vectors) {
-            // Skip legacy vectors that don't have content metadata
-            if (!stored.content || !stored.filePath) {
-                continue;
-            }
+            const filePath = getFilePathFromChunkId(chunkId);
 
             // Apply search filters
-            if (!this.matchesFilter(stored.filePath, options)) {
+            if (!this.matchesFilter(filePath, options)) {
                 continue;
             }
             
             const score = this.cosineSimilarity(queryVector, stored.vector);
-            results.push({
-                chunkId,
-                content: stored.content,
-                filePath: stored.filePath,
-                fileLink: stored.fileLink ?? "",
-                score
-            });
+            results.push({ chunkId, filePath, score });
         }
 
         // Sort by score descending and return top results
@@ -304,15 +341,11 @@ export class VectorStore {
     }
 
     /**
-     * Check if vectors need migration (legacy format without content)
+     * Whether the last `load()` discarded incompatible/legacy data, meaning
+     * embeddings need to be regenerated via "Rebuild Index".
      */
-    hasLegacyVectors(): boolean {
-        for (const stored of this.vectors.values()) {
-            if (!stored.content || !stored.filePath) {
-                return true;
-            }
-        }
-        return false;
+    needsRebuildAfterMigration(): boolean {
+        return this.migratedFromLegacy;
     }
 
     /**

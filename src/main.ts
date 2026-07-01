@@ -52,10 +52,10 @@ export default class HelloWorldPlugin extends Plugin {
 		this.vectorStore = new VectorStore(this);
 		await this.vectorStore.load();
 		
-		// Check for legacy vectors that need migration
-		if (this.vectorStore.hasLegacyVectors()) {
-			console.log("Legacy vectors detected. They will be re-embedded with content metadata.");
-			new Notice("Vector store needs update. Please run 'Rebuild Index' to update embeddings.");
+		// Check whether embeddings were migrated from the old data.json-based store
+		if (this.vectorStore.needsRebuildAfterMigration()) {
+			console.log("Embedding store moved to a dedicated file. Vectors need to be regenerated.");
+			new Notice("Vector store was upgraded. Please run 'Rebuild Index' to regenerate embeddings.");
 		}
 		
 		// Initialize the embedding manager
