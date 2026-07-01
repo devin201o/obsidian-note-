@@ -97,7 +97,9 @@ export class EmbeddingManager {
                 await this.delay(5);
             }
 
-            const hash = this.hashContent(chunk.content);
+            // Hash the embedded text (title + breadcrumb + content) so that a
+            // change to the heading context also triggers a re-embed.
+            const hash = this.hashContent(chunk.embedText);
             
             if (this.vectorStore.hasValidVector(chunk.id, hash)) {
                 result.skipped++;
@@ -116,7 +118,7 @@ export class EmbeddingManager {
             await this.delay(10);
             
             const batch = chunksToEmbed.slice(i, i + this.config.batchSize);
-            const texts = batch.map(item => item.chunk.content);
+            const texts = batch.map(item => item.chunk.embedText);
 
             try {
                 const response = await getEmbeddings(this.apiKey, texts);
@@ -138,7 +140,8 @@ export class EmbeddingManager {
                             item.hash,
                             item.chunk.content,
                             item.chunk.filePath,
-                            item.chunk.fileLink
+                            item.chunk.fileLink,
+                            item.chunk.heading
                         );
                         result.processed++;
                     } else {
@@ -260,7 +263,8 @@ export class EmbeddingManager {
                     stored.contentHash,
                     stored.content,
                     newPath,
-                    newFileLink
+                    newFileLink,
+                    stored.heading ?? ""
                 );
             }
         }

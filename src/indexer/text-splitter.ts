@@ -1,9 +1,17 @@
 /**
+ * Chunking strategy identifier.
+ * - "markdown": structure-aware splitting by heading hierarchy (recommended)
+ * - "character": legacy fixed-size recursive character splitting
+ */
+export type ChunkingStrategy = "markdown" | "character";
+
+/**
  * Configuration options for the text splitter
  */
 export interface TextSplitterConfig {
     chunkSize: number;
     chunkOverlap: number;
+    strategy: ChunkingStrategy;
 }
 
 /**
@@ -11,8 +19,31 @@ export interface TextSplitterConfig {
  */
 export const DEFAULT_SPLITTER_CONFIG: TextSplitterConfig = {
     chunkSize: 1000,
-    chunkOverlap: 200
+    chunkOverlap: 200,
+    strategy: "markdown"
 };
+
+/**
+ * A single split produced by a splitter.
+ * `content` is the human-readable chunk text (used for display and citation),
+ * while `heading` is the breadcrumb of markdown headings the chunk lives under
+ * (e.g. "Architecture > Retrieval"). Empty for content above the first heading
+ * or when using the character strategy.
+ */
+export interface SplitChunk {
+    content: string;
+    heading: string;
+}
+
+/**
+ * Build the text that is actually sent to the embedding model for a chunk.
+ * Prepending the note title + heading breadcrumb anchors short sections in
+ * their topic, which markedly improves retrieval for terse notes.
+ */
+export function buildEmbedText(noteName: string, heading: string, content: string): string {
+    const crumb = [noteName, heading].filter(part => part && part.length > 0).join(" > ");
+    return crumb.length > 0 ? `${crumb}\n\n${content}` : content;
+}
 
 /**
  * RecursiveCharacterTextSplitter splits text recursively using a hierarchy of separators.
@@ -139,10 +170,272 @@ export class RecursiveCharacterTextSplitter {
     /**
      * Get the current configuration
      */
-    getConfig(): TextSplitterConfig {
+    getConfig(): { chunkSize: number; chunkOverlap: number } {
         return {
             chunkSize: this.chunkSize,
             chunkOverlap: this.chunkOverlap
         };
+    }
+}
+
+interface HeadingFrame {
+    level: number;
+    title: string;
+}
+
+/**
+ * MarkdownTextSplitter splits markdown by its heading hierarchy first, then
+ * size-limits each section. It keeps fenced code blocks intact and records the
+ * heading breadcrumb for every chunk so callers can anchor embeddings in topic
+ * context. This preserves far more semantic structure than blind character
+ * splitting, which is the single biggest driver of retrieval quality.
+ */
+export class MarkdownTextSplitter {
+    private readonly chunkSize: number;
+    private readonly chunkOverlap: number;
+    private readonly charSplitter: RecursiveCharacterTextSplitter;
+
+    private static readonly HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
+    private static readonly FENCE_RE = /^\s*(`{3,}|~{3,})/;
+
+    constructor(config: Partial<TextSplitterConfig> = {}) {
+        const merged = { ...DEFAULT_SPLITTER_CONFIG, ...config };
+        this.chunkSize = merged.chunkSize;
+        this.chunkOverlap = merged.chunkOverlap;
+
+        if (this.chunkOverlap >= this.chunkSize) {
+            throw new Error("chunkOverlap must be less than chunkSize");
+        }
+
+        this.charSplitter = new RecursiveCharacterTextSplitter(merged);
+    }
+
+    /**
+     * Split markdown text into heading-aware chunks.
+     */
+    splitMarkdown(text: string): SplitChunk[] {
+        const { frontmatter, body } = this.extractFrontmatter(text);
+        const sections = this.splitIntoSections(body);
+
+        // Fold frontmatter into the first section so tags/aliases stay searchable.
+        if (frontmatter.length > 0) {
+            const first = sections[0];
+            if (first && first.heading === "") {
+                first.content = `${frontmatter}\n\n${first.content}`.trim();
+            } else {
+                sections.unshift({ heading: "", content: frontmatter });
+            }
+        }
+
+        const result: SplitChunk[] = [];
+        for (const section of sections) {
+            const pieces = this.splitSection(section.content);
+            for (const piece of pieces) {
+                const trimmed = piece.trim();
+                if (trimmed.length > 0) {
+                    result.push({ content: trimmed, heading: section.heading });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Pull YAML frontmatter off the top of the document, if present.
+     */
+    private extractFrontmatter(text: string): { frontmatter: string; body: string } {
+        if (!text.startsWith("---")) {
+            return { frontmatter: "", body: text };
+        }
+
+        const lines = text.split("\n");
+        if ((lines[0] ?? "").trim() !== "---") {
+            return { frontmatter: "", body: text };
+        }
+
+        for (let i = 1; i < lines.length; i++) {
+            if ((lines[i] ?? "").trim() === "---") {
+                const frontmatter = lines.slice(1, i).join("\n").trim();
+                const body = lines.slice(i + 1).join("\n");
+                return { frontmatter, body };
+            }
+        }
+
+        return { frontmatter: "", body: text };
+    }
+
+    /**
+     * Split a document body into sections delimited by ATX headings, tracking
+     * the heading stack so each section carries its full breadcrumb. Headings
+     * inside fenced code blocks are ignored.
+     */
+    private splitIntoSections(body: string): Array<{ heading: string; content: string }> {
+        const lines = body.split("\n");
+        const sections: Array<{ heading: string; content: string }> = [];
+        const stack: HeadingFrame[] = [];
+        let current: string[] = [];
+        let fence: string | null = null;
+
+        const flush = (breadcrumb: string) => {
+            const content = current.join("\n").trim();
+            if (content.length > 0) {
+                sections.push({ heading: breadcrumb, content });
+            }
+            current = [];
+        };
+
+        const breadcrumbOf = (frames: HeadingFrame[]): string =>
+            frames.map(f => f.title).join(" > ");
+
+        for (const line of lines) {
+            const fenceMatch = MarkdownTextSplitter.FENCE_RE.exec(line);
+            if (fenceMatch) {
+                const marker = fenceMatch[1] ?? "";
+                if (fence === null) {
+                    fence = marker[0] ?? "`";
+                } else if (marker[0] === fence) {
+                    fence = null;
+                }
+                current.push(line);
+                continue;
+            }
+
+            const headingMatch = fence === null ? MarkdownTextSplitter.HEADING_RE.exec(line) : null;
+            if (headingMatch) {
+                // Close the section that belongs to the current (pre-update) stack.
+                flush(breadcrumbOf(stack));
+
+                const level = (headingMatch[1] ?? "").length;
+                const title = (headingMatch[2] ?? "").trim();
+                while (stack.length > 0 && (stack[stack.length - 1]?.level ?? 0) >= level) {
+                    stack.pop();
+                }
+                stack.push({ level, title });
+                current.push(line);
+            } else {
+                current.push(line);
+            }
+        }
+
+        flush(breadcrumbOf(stack));
+        return sections;
+    }
+
+    /**
+     * Split one section's content into size-bounded chunks, keeping fenced code
+     * blocks whole and falling back to character splitting for oversized blocks.
+     */
+    private splitSection(content: string): string[] {
+        if (content.length <= this.chunkSize) {
+            return [content];
+        }
+
+        const blocks = this.splitIntoBlocks(content);
+        const chunks: string[] = [];
+        let current = "";
+
+        for (const block of blocks) {
+            const candidateLength = current.length === 0 ? block.length : current.length + 2 + block.length;
+
+            if (candidateLength > this.chunkSize && current.length > 0) {
+                chunks.push(current.trim());
+                current = this.getOverlapText(current);
+            }
+
+            if (block.length > this.chunkSize) {
+                if (current.trim().length > 0) {
+                    chunks.push(current.trim());
+                    current = "";
+                }
+                for (const sub of this.charSplitter.splitText(block)) {
+                    chunks.push(sub.trim());
+                }
+                continue;
+            }
+
+            current = current.length === 0 ? block : `${current}\n\n${block}`;
+        }
+
+        if (current.trim().length > 0) {
+            chunks.push(current.trim());
+        }
+
+        return chunks;
+    }
+
+    /**
+     * Break a section into paragraph blocks, keeping fenced code blocks intact.
+     */
+    private splitIntoBlocks(content: string): string[] {
+        const lines = content.split("\n");
+        const blocks: string[] = [];
+        let current: string[] = [];
+        let fence: string | null = null;
+
+        const flush = () => {
+            const joined = current.join("\n").trim();
+            if (joined.length > 0) {
+                blocks.push(joined);
+            }
+            current = [];
+        };
+
+        for (const line of lines) {
+            const fenceMatch = MarkdownTextSplitter.FENCE_RE.exec(line);
+            if (fenceMatch) {
+                const marker = fenceMatch[1] ?? "";
+                if (fence === null) {
+                    fence = marker[0] ?? "`";
+                } else if (marker[0] === fence) {
+                    fence = null;
+                }
+                current.push(line);
+                continue;
+            }
+
+            if (fence === null && line.trim() === "") {
+                flush();
+            } else {
+                current.push(line);
+            }
+        }
+
+        flush();
+        return blocks;
+    }
+
+    private getOverlapText(text: string): string {
+        if (this.chunkOverlap <= 0) {
+            return "";
+        }
+        if (text.length <= this.chunkOverlap) {
+            return text;
+        }
+        return text.slice(-this.chunkOverlap);
+    }
+}
+
+/**
+ * Splitter facade used by ChunkManager. Selects the concrete splitter based on
+ * the configured strategy and always returns SplitChunk[].
+ */
+export class DocumentSplitter {
+    private readonly strategy: ChunkingStrategy;
+    private readonly markdownSplitter: MarkdownTextSplitter;
+    private readonly charSplitter: RecursiveCharacterTextSplitter;
+
+    constructor(config: Partial<TextSplitterConfig> = {}) {
+        const merged = { ...DEFAULT_SPLITTER_CONFIG, ...config };
+        this.strategy = merged.strategy;
+        this.markdownSplitter = new MarkdownTextSplitter(merged);
+        this.charSplitter = new RecursiveCharacterTextSplitter(merged);
+    }
+
+    split(text: string): SplitChunk[] {
+        if (this.strategy === "character") {
+            return this.charSplitter.splitText(text).map(content => ({ content, heading: "" }));
+        }
+        return this.markdownSplitter.splitMarkdown(text);
     }
 }

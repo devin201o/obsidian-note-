@@ -46,8 +46,9 @@ export default class HelloWorldPlugin extends Plugin {
 		
 		// Initialize the chunk manager with privacy manager
 		this.chunkManager = new ChunkManager(this.app, this.privacyManager, {
-			chunkSize: 1000,
-			chunkOverlap: 200
+			chunkSize: this.settings.chunkSize,
+			chunkOverlap: this.settings.chunkOverlap,
+			strategy: this.settings.chunkingStrategy
 		});
 		this.chunkManager.setExcludedFolders(this.settings.excludedFolders);
 		

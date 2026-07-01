@@ -1,6 +1,7 @@
 import { App, Modal, PluginSettingTab, Setting } from "obsidian";
 import MyPlugin from "./main";
 import type { IndexedFile } from "./indexer";
+import type { ChunkingStrategy } from "./indexer/text-splitter";
 
 export interface ChatMessage {
     content: string;
@@ -19,6 +20,9 @@ export interface MyPluginSettings {
     maxContextChunks: number;
     excludedFolders: string[];
     autoIndexChanges: boolean;
+    chunkingStrategy: ChunkingStrategy;
+    chunkSize: number;
+    chunkOverlap: number;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -31,7 +35,10 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     retrievalPoolSize: 50,
     maxContextChunks: 15,
     excludedFolders: [],
-    autoIndexChanges: true
+    autoIndexChanges: true,
+    chunkingStrategy: 'markdown',
+    chunkSize: 1000,
+    chunkOverlap: 200
 }
 
 /**
@@ -275,6 +282,50 @@ export class SampleSettingTab extends PluginSettingTab {
 				textArea.inputEl.cols = 40;
 				return textArea;
 			});
+
+		// ===== Chunking Section =====
+		containerEl.createEl("h3", { text: "Chunking" });
+
+		new Setting(containerEl)
+			.setName('Chunking strategy')
+			.setDesc('Markdown splits notes by heading structure (recommended). Character uses fixed-size blocks. Changing this requires a Force Rebuild Index.')
+			.addDropdown(dropdown => dropdown
+				.addOption('markdown', 'Markdown (structure-aware)')
+				.addOption('character', 'Character (fixed-size)')
+				.setValue(this.plugin.settings.chunkingStrategy)
+				.onChange(async (value) => {
+					this.plugin.settings.chunkingStrategy = value === 'character' ? 'character' : 'markdown';
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Chunk size')
+			.setDesc('Target maximum characters per chunk. Larger chunks add context but reduce precision. Changing this requires a Force Rebuild Index.')
+			.addSlider(slider => slider
+				.setLimits(400, 3000, 100)
+				.setValue(this.plugin.settings.chunkSize)
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.chunkSize = value;
+					// Keep overlap strictly below chunk size.
+					if (this.plugin.settings.chunkOverlap >= value) {
+						this.plugin.settings.chunkOverlap = Math.floor(value / 5);
+					}
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Chunk overlap')
+			.setDesc('Characters shared between adjacent chunks to preserve context across boundaries. Must be less than chunk size. Changing this requires a Force Rebuild Index.')
+			.addSlider(slider => slider
+				.setLimits(0, 600, 50)
+				.setValue(this.plugin.settings.chunkOverlap)
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					// Clamp overlap below chunk size to satisfy the splitter invariant.
+					this.plugin.settings.chunkOverlap = Math.min(value, this.plugin.settings.chunkSize - 100);
+					await this.plugin.saveSettings();
+				}));
 
 		// ===== Search & Retrieval Section =====
 		containerEl.createEl("h3", { text: "Search & Retrieval" });

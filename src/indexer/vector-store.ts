@@ -1,4 +1,5 @@
 import { App, normalizePath, Plugin } from "obsidian";
+import { buildEmbedText } from "./text-splitter";
 
 /**
  * Options for filtering search results
@@ -18,14 +19,16 @@ export interface SearchOptions {
 export interface StoredVector {
     /** The embedding vector */
     vector: number[];
-    /** Hash of the content to detect changes */
+    /** Hash of the embedded text to detect changes */
     contentHash: string;
-    /** The actual text content of the chunk */
+    /** The actual text content of the chunk (display/citation) */
     content: string;
     /** The file path this chunk belongs to */
     filePath: string;
     /** WikiLink format for LLM reference */
     fileLink: string;
+    /** Heading breadcrumb this chunk lives under; "" if none */
+    heading?: string;
 }
 
 /**
@@ -54,6 +57,8 @@ export interface CachedChunk {
     filePath: string;
     fileLink: string;
     chunkIndex: number;
+    heading: string;
+    embedText: string;
 }
 
 /**
@@ -225,9 +230,10 @@ export class VectorStore {
         contentHash: string,
         content: string,
         filePath: string,
-        fileLink: string
+        fileLink: string,
+        heading: string = ""
     ): void {
-        this.vectors.set(chunkId, { vector, contentHash, content, filePath, fileLink });
+        this.vectors.set(chunkId, { vector, contentHash, content, filePath, fileLink, heading });
         this.isDirty = true;
     }
 
@@ -262,18 +268,22 @@ export class VectorStore {
      */
     getCachedChunksForFile(filePath: string): CachedChunk[] {
         const prefix = `${filePath}::`;
+        const noteName = filePath.replace(/\.md$/, "").split("/").pop() ?? filePath;
         const chunks: CachedChunk[] = [];
 
         for (const [chunkId, stored] of this.vectors) {
             if (!chunkId.startsWith(prefix) || !stored.content) continue;
             const chunkIndex = Number(chunkId.slice(prefix.length));
             if (Number.isNaN(chunkIndex)) continue;
+            const heading = stored.heading ?? "";
             chunks.push({
                 id: chunkId,
                 content: stored.content,
                 filePath,
                 fileLink: stored.fileLink ?? "",
-                chunkIndex
+                chunkIndex,
+                heading,
+                embedText: buildEmbedText(noteName, heading, stored.content)
             });
         }
 

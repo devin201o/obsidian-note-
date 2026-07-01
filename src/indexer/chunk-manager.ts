@@ -1,5 +1,5 @@
 import { App, TFile } from "obsidian";
-import { RecursiveCharacterTextSplitter, TextSplitterConfig } from "./text-splitter";
+import { DocumentSplitter, TextSplitterConfig, buildEmbedText } from "./text-splitter";
 import { PrivacyManager } from "./privacy-manager";
 
 /**
@@ -8,7 +8,7 @@ import { PrivacyManager } from "./privacy-manager";
 export interface Chunk {
     /** Unique identifier: filepath::index */
     id: string;
-    /** The chunk text content */
+    /** The chunk text content (used for display and citation) */
     content: string;
     /** Path to the source file */
     filePath: string;
@@ -16,6 +16,10 @@ export interface Chunk {
     fileLink: string;
     /** Index of this chunk within the file */
     chunkIndex: number;
+    /** Heading breadcrumb this chunk lives under (e.g. "Setup > Install"); "" if none */
+    heading: string;
+    /** Text actually sent to the embedding model (title + breadcrumb + content) */
+    embedText: string;
 }
 
 /**
@@ -24,7 +28,7 @@ export interface Chunk {
  */
 export class ChunkManager {
     private app: App;
-    private splitter: RecursiveCharacterTextSplitter;
+    private splitter: DocumentSplitter;
     private privacyManager: PrivacyManager;
     /** Map of file path to array of chunks */
     private chunksByFile: Map<string, Chunk[]> = new Map();
@@ -34,7 +38,7 @@ export class ChunkManager {
     constructor(app: App, privacyManager: PrivacyManager, splitterConfig?: Partial<TextSplitterConfig>) {
         this.app = app;
         this.privacyManager = privacyManager;
-        this.splitter = new RecursiveCharacterTextSplitter(splitterConfig);
+        this.splitter = new DocumentSplitter(splitterConfig);
     }
 
     /**
@@ -102,15 +106,18 @@ export class ChunkManager {
             return;
         }
 
-        // Calculate new file link from new path
+        // Calculate new file link and note name from new path
         const newFileLink = this.createFileLink(newPath);
+        const newNoteName = this.noteNameFromPath(newPath);
 
-        // Update each chunk with new path and id
+        // Update each chunk with new path and id. embedText is rebuilt because it
+        // embeds the note name, which changed with the rename.
         const updatedChunks = chunks.map(chunk => ({
             ...chunk,
             id: `${newPath}::${chunk.chunkIndex}`,
             filePath: newPath,
-            fileLink: newFileLink
+            fileLink: newFileLink,
+            embedText: buildEmbedText(newNoteName, chunk.heading, chunk.content)
         }));
 
         // Remove old entry and add new one
@@ -179,16 +186,27 @@ export class ChunkManager {
      * Create chunks from text content
      */
     private createChunksFromContent(content: string, file: TFile): Chunk[] {
-        const textChunks = this.splitter.splitText(content);
+        const splitChunks = this.splitter.split(content);
         const fileLink = this.createFileLink(file.path);
-        
-        return textChunks.map((text, index) => ({
+        const noteName = this.noteNameFromPath(file.path);
+
+        return splitChunks.map((split, index) => ({
             id: `${file.path}::${index}`,
-            content: text,
+            content: split.content,
             filePath: file.path,
             fileLink: fileLink,
-            chunkIndex: index
+            chunkIndex: index,
+            heading: split.heading,
+            embedText: buildEmbedText(noteName, split.heading, split.content)
         }));
+    }
+
+    /**
+     * Extract the note name (filename without extension) from a path
+     */
+    private noteNameFromPath(path: string): string {
+        const fileName = path.replace(/\.md$/, "");
+        return fileName.split("/").pop() ?? fileName;
     }
 
     /**
@@ -196,11 +214,7 @@ export class ChunkManager {
      * e.g., "folder/My Note.md" -> "[[My Note]]"
      */
     private createFileLink(path: string): string {
-        // Remove .md extension and get just the filename
-        const fileName = path.replace(/\.md$/, "");
-        // Extract just the note name (last part of path without extension)
-        const noteName = fileName.split("/").pop() ?? fileName;
-        return `[[${noteName}]]`;
+        return `[[${this.noteNameFromPath(path)}]]`;
     }
 
 }
