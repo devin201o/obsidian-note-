@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { requestUrl } from "obsidian";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "google/gemini-2.5-flash";
@@ -14,6 +14,21 @@ export interface EmbeddingResponse {
     error?: string;
 }
 
+/**
+ * Extract a human-readable error message from an OpenRouter/OpenAI-style
+ * error response body, falling back to the HTTP status text.
+ */
+function extractErrorMessage(status: number, json: unknown): string {
+    if (json && typeof json === "object" && "error" in json) {
+        const err = (json as { error?: { message?: string } | string }).error;
+        if (typeof err === "string") return err;
+        if (err && typeof err === "object" && typeof err.message === "string") {
+            return err.message;
+        }
+    }
+    return `Request failed with status ${status}`;
+}
+
 export async function sendChatMessage(
     apiKey: string,
     messages: { role: "user" | "assistant" | "system"; content: string }[],
@@ -26,18 +41,25 @@ export async function sendChatMessage(
     const modelToUse = model?.trim() || DEFAULT_MODEL;
 
     try {
-        const client = new OpenAI({
-            baseURL: OPENROUTER_BASE_URL,
-            apiKey: apiKey,
-            dangerouslyAllowBrowser: true, // Required for browser/Obsidian environment
+        const response = await requestUrl({
+            url: `${OPENROUTER_BASE_URL}/chat/completions`,
+            method: "POST",
+            contentType: "application/json",
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: modelToUse,
+                messages,
+            }),
+            throw: false,
         });
 
-        const completion = await client.chat.completions.create({
-            model: modelToUse,
-            messages: messages,
-        });
+        if (response.status >= 400) {
+            return { content: "", error: extractErrorMessage(response.status, response.json) };
+        }
 
-        const responseContent = completion.choices[0]?.message?.content;
+        const responseContent = response.json?.choices?.[0]?.message?.content;
         if (!responseContent) {
             return { content: "", error: "No response from model" };
         }
@@ -65,25 +87,31 @@ export async function getEmbeddings(
     }
 
     try {
-        const client = new OpenAI({
-            baseURL: OPENROUTER_BASE_URL,
-            apiKey: apiKey,
-            dangerouslyAllowBrowser: true,
+        const response = await requestUrl({
+            url: `${OPENROUTER_BASE_URL}/embeddings`,
+            method: "POST",
+            contentType: "application/json",
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: EMBEDDING_MODEL,
+                input: texts,
+            }),
+            throw: false,
         });
 
-        const response = await client.embeddings.create({
-            model: EMBEDDING_MODEL,
-            input: texts,
-        });
+        if (response.status >= 400) {
+            const errorMessage = extractErrorMessage(response.status, response.json);
+            console.error("Embedding error:", errorMessage);
+            return { embeddings: [], error: errorMessage };
+        }
+
+        const data: Array<{ index: number; embedding: number[] }> = response.json?.data ?? [];
 
         // Sort by index to ensure correct order
-        const sortedData = response.data.sort((a, b) => a.index - b.index);
+        const sortedData = [...data].sort((a, b) => a.index - b.index);
         const embeddings = sortedData.map(item => item.embedding);
-
-        // Debug: Log embedding dimensions
-        if (embeddings.length > 0 && embeddings[0]) {
-            console.log(`Received ${embeddings.length} embedding(s) with dimensions: ${embeddings[0].length}`);
-        }
 
         return { embeddings };
     } catch (error) {
