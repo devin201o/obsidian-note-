@@ -1,6 +1,8 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import MyPlugin from "../main";
 import { IndexedFilesModal } from "./indexed-files-modal";
+import { CHAT_PROVIDER_LABELS, EMBEDDING_PROVIDER_LABELS } from "../llm/factory";
+import type { ChatProviderId, EmbeddingProviderId } from "../llm/types";
 
 /**
  * Render a section heading with a one-line, plain-language description
@@ -26,6 +28,49 @@ export class SampleSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 
 		containerEl.empty();
+
+		// ===== AI Provider Section =====
+		addSectionHeading(
+			containerEl,
+			"AI provider",
+			"Choose which AI service powers chat and note search, and enter its credentials. Chat and search can use different providers."
+		);
+
+		containerEl.createEl("h4", { text: "Chat" });
+		new Setting(containerEl)
+			.setName('Chat provider')
+			.setDesc('Which AI service answers your questions in the chat view.')
+			.addDropdown(dropdown => {
+				for (const id of Object.keys(CHAT_PROVIDER_LABELS) as ChatProviderId[]) {
+					dropdown.addOption(id, CHAT_PROVIDER_LABELS[id]);
+				}
+				dropdown
+					.setValue(this.plugin.settings.chatProvider)
+					.onChange(async (value) => {
+						this.plugin.settings.chatProvider = value as ChatProviderId;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+		this.renderChatProviderFields(containerEl);
+
+		containerEl.createEl("h4", { text: "Embeddings" });
+		new Setting(containerEl)
+			.setName('Embedding provider')
+			.setDesc('Which AI service turns your notes into searchable vectors during indexing. Can be a different service than chat (for example, a local Ollama model here with a hosted chat model above).')
+			.addDropdown(dropdown => {
+				for (const id of Object.keys(EMBEDDING_PROVIDER_LABELS) as EmbeddingProviderId[]) {
+					dropdown.addOption(id, EMBEDDING_PROVIDER_LABELS[id]);
+				}
+				dropdown
+					.setValue(this.plugin.settings.embeddingProvider)
+					.onChange(async (value) => {
+						this.plugin.settings.embeddingProvider = value as EmbeddingProviderId;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+		this.renderEmbeddingProviderFields(containerEl);
 
 		// ===== Vault Indexer Section =====
 		addSectionHeading(
@@ -346,31 +391,168 @@ export class SampleSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// ===== General Settings Section =====
-		containerEl.createEl("h3", { text: "General Settings" });
+	}
 
+	/** Render the API key/base URL + model fields for the selected chat provider. */
+	private renderChatProviderFields(containerEl: HTMLElement): void {
+		switch (this.plugin.settings.chatProvider) {
+			case 'openai':
+				this.addApiKeySetting(
+					containerEl,
+					'OpenAI API key',
+					'Get one at platform.openai.com.',
+					'sk-...',
+					() => this.plugin.settings.openAIApiKey,
+					(value) => { this.plugin.settings.openAIApiKey = value; }
+				);
+				this.addModelSetting(
+					containerEl,
+					'Chat model',
+					'The model ID to use for chat (e.g., gpt-4o-mini, gpt-4o).',
+					'gpt-4o-mini',
+					() => this.plugin.settings.openAIModel,
+					(value) => { this.plugin.settings.openAIModel = value; }
+				);
+				break;
+			case 'ollama':
+				this.addOllamaBaseUrlSetting(containerEl);
+				this.addModelSetting(
+					containerEl,
+					'Chat model',
+					'The name of a model you have pulled locally (e.g., llama3.1, mistral, qwen2.5).',
+					'llama3.1',
+					() => this.plugin.settings.ollamaModel,
+					(value) => { this.plugin.settings.ollamaModel = value; }
+				);
+				break;
+			case 'openrouter':
+			default:
+				this.addApiKeySetting(
+					containerEl,
+					'OpenRouter API key',
+					'Get one at openrouter.ai.',
+					'sk-or-...',
+					() => this.plugin.settings.openRouterApiKey,
+					(value) => { this.plugin.settings.openRouterApiKey = value; }
+				);
+				this.addModelSetting(
+					containerEl,
+					'Chat model',
+					'The model ID to use for chat (e.g., google/gemini-2.5-flash, openai/gpt-4o, anthropic/claude-3.5-sonnet).',
+					'google/gemini-2.5-flash',
+					() => this.plugin.settings.openRouterModel,
+					(value) => { this.plugin.settings.openRouterModel = value; }
+				);
+				break;
+		}
+	}
+
+	/** Render the API key/base URL + model fields for the selected embedding provider. */
+	private renderEmbeddingProviderFields(containerEl: HTMLElement): void {
+		switch (this.plugin.settings.embeddingProvider) {
+			case 'openai':
+				this.addApiKeySetting(
+					containerEl,
+					'OpenAI API key',
+					'Get one at platform.openai.com.',
+					'sk-...',
+					() => this.plugin.settings.openAIApiKey,
+					(value) => { this.plugin.settings.openAIApiKey = value; }
+				);
+				this.addModelSetting(
+					containerEl,
+					'Embedding model',
+					'The model ID to use for embeddings (e.g., text-embedding-3-small).',
+					'text-embedding-3-small',
+					() => this.plugin.settings.openAIEmbeddingModel,
+					(value) => { this.plugin.settings.openAIEmbeddingModel = value; }
+				);
+				break;
+			case 'ollama':
+				this.addOllamaBaseUrlSetting(containerEl);
+				this.addModelSetting(
+					containerEl,
+					'Embedding model',
+					'The name of a local embedding model you have pulled (e.g., nomic-embed-text).',
+					'nomic-embed-text',
+					() => this.plugin.settings.ollamaEmbeddingModel,
+					(value) => { this.plugin.settings.ollamaEmbeddingModel = value; }
+				);
+				break;
+			case 'openrouter':
+			default:
+				this.addApiKeySetting(
+					containerEl,
+					'OpenRouter API key',
+					'Get one at openrouter.ai.',
+					'sk-or-...',
+					() => this.plugin.settings.openRouterApiKey,
+					(value) => { this.plugin.settings.openRouterApiKey = value; }
+				);
+				this.addModelSetting(
+					containerEl,
+					'Embedding model',
+					'The model ID to use for embeddings (e.g., openai/text-embedding-3-small).',
+					'openai/text-embedding-3-small',
+					() => this.plugin.settings.openRouterEmbeddingModel,
+					(value) => { this.plugin.settings.openRouterEmbeddingModel = value; }
+				);
+				break;
+		}
+	}
+
+	private addApiKeySetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
+		placeholder: string,
+		getValue: () => string,
+		setValue: (value: string) => void
+	): void {
 		new Setting(containerEl)
-			.setName('OpenRouter API Key')
-			.setDesc('Enter your OpenRouter API key. Get one at openrouter.ai')
+			.setName(name)
+			.setDesc(desc)
 			.addText(text => {
-				text.setPlaceholder('sk-or-...')
-					.setValue(this.plugin.settings.openRouterApiKey)
+				text.setPlaceholder(placeholder)
+					.setValue(getValue())
 					.onChange(async (value) => {
-						this.plugin.settings.openRouterApiKey = value;
+						setValue(value);
 						await this.plugin.saveSettings();
 					});
 				text.inputEl.type = 'password';
 				return text;
 			});
+	}
 
+	private addModelSetting(
+		containerEl: HTMLElement,
+		name: string,
+		desc: string,
+		placeholder: string,
+		getValue: () => string,
+		setValue: (value: string) => void
+	): void {
 		new Setting(containerEl)
-			.setName('OpenRouter Chat Model')
-			.setDesc('The model ID to use for chat (e.g., google/gemini-2.5-flash, openai/gpt-4o, anthropic/claude-3.5-sonnet)')
+			.setName(name)
+			.setDesc(desc)
 			.addText(text => text
-				.setPlaceholder('google/gemini-2.5-flash')
-				.setValue(this.plugin.settings.openRouterModel)
+				.setPlaceholder(placeholder)
+				.setValue(getValue())
 				.onChange(async (value) => {
-					this.plugin.settings.openRouterModel = value;
+					setValue(value);
+					await this.plugin.saveSettings();
+				}));
+	}
+
+	private addOllamaBaseUrlSetting(containerEl: HTMLElement): void {
+		new Setting(containerEl)
+			.setName('Ollama base URL')
+			.setDesc('Where your local Ollama server is running. No API key is needed, but Ollama must be running and reachable at this address.')
+			.addText(text => text
+				.setPlaceholder('http://localhost:11434')
+				.setValue(this.plugin.settings.ollamaBaseUrl)
+				.onChange(async (value) => {
+					this.plugin.settings.ollamaBaseUrl = value;
 					await this.plugin.saveSettings();
 				}));
 	}
