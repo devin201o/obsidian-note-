@@ -31,6 +31,8 @@ export interface MyPluginSettings {
     neighborExpansion: boolean;
     queryRewriting: boolean;
     useHyde: boolean;
+    useReranker: boolean;
+    rerankCandidates: number;
 }
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -53,7 +55,9 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
     contextTokenBudget: 6000,
     neighborExpansion: true,
     queryRewriting: true,
-    useHyde: false
+    useHyde: false,
+    useReranker: false,
+    rerankCandidates: 20
 }
 
 /**
@@ -444,6 +448,28 @@ export class SampleSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.useHyde)
 				.onChange(async (value) => {
 					this.plugin.settings.useHyde = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('LLM reranker')
+			.setDesc('Retrieve a wider candidate pool and have the model reorder it by relevance before answering. Highest precision, but adds a larger LLM call per message. Off by default.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.useReranker)
+				.onChange(async (value) => {
+					this.plugin.settings.useReranker = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Reranker candidate pool')
+			.setDesc('How many candidates to send to the reranker when it is enabled. Larger pools improve recall but cost more tokens.')
+			.addSlider(slider => slider
+				.setLimits(5, 50, 5)
+				.setValue(this.plugin.settings.rerankCandidates)
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.rerankCandidates = value;
 					await this.plugin.saveSettings();
 				}));
 

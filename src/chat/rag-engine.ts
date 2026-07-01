@@ -2,6 +2,7 @@ import { EmbeddingManager, HybridSearchResult } from "../indexer/embedding-manag
 import { SearchOptions } from "../indexer/vector-store";
 import { sendChatMessage } from "../llm/openrouter";
 import { rewriteQuery, generateHydeDocument } from "./query-transformer";
+import { rerankResults } from "./reranker";
 import type { MyPluginSettings } from "../settings";
 
 /**
@@ -83,6 +84,8 @@ export class RAGEngine {
         const neighborRadius = settings?.neighborExpansion === false ? 0 : 1;
         const queryRewriting = settings?.queryRewriting !== false;
         const useHyde = settings?.useHyde === true;
+        const useReranker = settings?.useReranker === true;
+        const rerankCandidates = settings?.rerankCandidates ?? 20;
 
         // Step 0: Rewrite follow-up questions into a standalone retrieval query
         // using the conversation, so references like "the other one" resolve.
@@ -101,21 +104,31 @@ export class RAGEngine {
             }
         }
 
-        // Step 1: Retrieve relevant chunks with hybrid search (vector + BM25 fusion)
+        // Step 1: Retrieve relevant chunks with hybrid search (vector + BM25 fusion).
+        // When reranking, retrieve a wider candidate pool to rerank down from.
+        const searchLimit = useReranker ? Math.max(maxChunks, rerankCandidates) : maxChunks;
         const searchResults = await this.embeddingManager.search(
             vectorQuery, 
-            maxChunks, 
+            searchLimit, 
             poolSize, 
             searchOptions,
             retrievalQuery
         );
 
-        // Step 2: Drop weak matches, then pack the strongest into a token budget,
-        // expanding each with its neighbors for fuller context.
-        const filtered = this.applyRelevanceFloor(searchResults, relevanceThreshold);
-        const contextItems = this.packContext(filtered, tokenBudget, neighborRadius);
+        // Step 2: Narrow the candidates. Either an LLM reranker (retrieve wide,
+        // rerank narrow) or a relevance floor relative to the top match.
+        let narrowed: HybridSearchResult[];
+        if (useReranker) {
+            narrowed = await rerankResults(this.apiKey, this.model, retrievalQuery, searchResults, maxChunks);
+        } else {
+            narrowed = this.applyRelevanceFloor(searchResults, relevanceThreshold);
+        }
 
-        // Step 3: Build the system prompt with context
+        // Step 3: Pack the survivors into a token budget, expanding each with its
+        // neighbors for fuller context.
+        const contextItems = this.packContext(narrowed, tokenBudget, neighborRadius);
+
+        // Step 4: Build the system prompt with context
         const systemPrompt = this.buildSystemPrompt(contextItems, searchOptions);
 
         // Step 3: Build messages array
