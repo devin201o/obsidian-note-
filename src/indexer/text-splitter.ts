@@ -293,8 +293,11 @@ export class MarkdownTextSplitter {
             if (fenceMatch) {
                 const marker = fenceMatch[1] ?? "";
                 if (fence === null) {
-                    fence = marker[0] ?? "`";
-                } else if (marker[0] === fence) {
+                    fence = marker;
+                } else if (marker[0] === fence[0] && marker.length >= fence.length) {
+                    // Per CommonMark, a fence only closes on a marker of the same
+                    // character that is at least as long as the opening one, so a
+                    // shorter nested fence (e.g. ``` inside ````) doesn't close it.
                     fence = null;
                 }
                 current.push(line);
@@ -386,8 +389,8 @@ export class MarkdownTextSplitter {
             if (fenceMatch) {
                 const marker = fenceMatch[1] ?? "";
                 if (fence === null) {
-                    fence = marker[0] ?? "`";
-                } else if (marker[0] === fence) {
+                    fence = marker;
+                } else if (marker[0] === fence[0] && marker.length >= fence.length) {
                     fence = null;
                 }
                 current.push(line);

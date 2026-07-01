@@ -196,10 +196,20 @@ export class RAGEngine {
                 continue;
             }
 
-            const content = group.map(g => g.content).join("\n\n");
-            const itemTokens = estimateTokens(content);
+            let content = group.map(g => g.content).join("\n\n");
+            let itemTokens = estimateTokens(content);
 
-            if (items.length > 0 && usedTokens + itemTokens > tokenBudget) {
+            // Truncate any single passage that alone exceeds the budget, so one
+            // oversized group (e.g. a large chunk plus neighbors) can't silently
+            // blow past the configured limit while still guaranteeing at least
+            // one non-empty result gets through.
+            if (tokenBudget > 0 && itemTokens > tokenBudget) {
+                const maxChars = tokenBudget * 4;
+                content = content.slice(0, maxChars).trimEnd();
+                itemTokens = estimateTokens(content);
+            }
+
+            if (tokenBudget > 0 && usedTokens + itemTokens > tokenBudget) {
                 break;
             }
 
