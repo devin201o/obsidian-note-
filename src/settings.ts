@@ -431,6 +431,9 @@ export class SampleSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		// ===== Query Enhancement Section =====
+		containerEl.createEl("h3", { text: "Query Enhancement" });
+
 		new Setting(containerEl)
 			.setName('Conversation-aware query rewriting')
 			.setDesc('Before searching, rewrite follow-up questions into a standalone query using the conversation, so references like "the other one" resolve correctly. Adds one small LLM call per follow-up message.')

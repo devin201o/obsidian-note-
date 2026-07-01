@@ -255,14 +255,14 @@ export class RAGEngine {
         contextItems: ContextItem[],
         searchOptions?: SearchOptions
     ): string {
-        let basePrompt = `You are an Obsidian assistant. Answer the user's question based on the context provided from their notes.
+        let basePrompt = `You are an Obsidian assistant. Answer the user's question using the context provided from their notes, which is given as a numbered list of sources.
 
 CRITICAL INSTRUCTIONS:
-1. You MUST cite your sources using the exact WikiLink format provided (e.g., [[Note Name]]).
-2. Do NOT use Markdown links like [Title](path).
-3. When referencing information, always mention where it came from using the WikiLink.
-4. If the context doesn't contain relevant information, say so honestly.
-5. Be concise but thorough in your answers.`;
+1. Base your answer on the provided context. Do NOT fabricate facts, quotes, or sources.
+2. Cite the sources you use inline with the exact WikiLink format shown (e.g., [[Note Name]]). Do NOT use Markdown links like [Title](path).
+3. If the context does not contain enough information to answer, say so clearly. Only add general knowledge if it is genuinely helpful, and make explicit that it does not come from their notes.
+4. Prefer information from higher-listed sources when sources conflict, but use your judgment.
+5. Be concise but thorough.`;
 
         // Add context scope information if filters are applied
         if (searchOptions) {
@@ -287,14 +287,14 @@ CRITICAL INSTRUCTIONS:
 Note: No relevant context was found in the vault for this query. Answer based on your general knowledge, but inform the user that no specific notes were found.`;
         }
 
-        // Build context section with sources
+        // Build context section with numbered sources for easier inline citation.
         let contextSection = "\n\n--- CONTEXT FROM YOUR NOTES ---\n";
         
-        for (const item of contextItems) {
-            contextSection += `\nSource: ${item.fileLink}\n`;
+        contextItems.forEach((item, index) => {
+            contextSection += `\n[${index + 1}] Source: ${item.fileLink}\n`;
             contextSection += `${item.content}\n`;
             contextSection += "---\n";
-        }
+        });
 
         return basePrompt + contextSection;
     }
