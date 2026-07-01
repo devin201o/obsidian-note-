@@ -464,7 +464,14 @@ export default class HelloWorldPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
+		// Strip any legacy `vectorStore` blob that older versions may have saved into data.json.
+		// VectorStore now persists embeddings to its own file, and this field must never be
+		// re-attached to settings, or saveSettings() would start rewriting it on every save again.
+		const data = await this.loadData() as (Partial<MyPluginSettings> & { vectorStore?: unknown }) | null;
+		if (data && "vectorStore" in data) {
+			delete data.vectorStore;
+		}
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
 	}
 
 	async saveSettings() {
