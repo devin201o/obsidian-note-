@@ -1,5 +1,5 @@
 import { requestUrl } from "obsidian";
-import { ChatMessage, ChatProvider, EmbeddingProvider, EmbeddingResponse, LLMResponse } from "../types";
+import { LLMChatMessage, ChatProvider, EmbeddingProvider, EmbeddingResponse, LLMResponse } from "../types";
 
 export interface OpenAICompatibleConfig {
     /** e.g. "https://openrouter.ai/api/v1" or "https://api.openai.com/v1" */
@@ -33,7 +33,7 @@ function extractErrorMessage(status: number, json: unknown): string {
 export class OpenAICompatibleProvider implements ChatProvider, EmbeddingProvider {
     constructor(private config: OpenAICompatibleConfig) {}
 
-    async sendChatMessage(messages: ChatMessage[]): Promise<LLMResponse> {
+    async sendChatMessage(messages: LLMChatMessage[]): Promise<LLMResponse> {
         const { apiKey, baseUrl, chatModel } = this.config;
         if (!apiKey) {
             return { content: "", error: "API key not set" };

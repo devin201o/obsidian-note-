@@ -1,5 +1,5 @@
 import { requestUrl } from "obsidian";
-import { ChatMessage, ChatProvider, EmbeddingProvider, EmbeddingResponse, LLMResponse } from "../types";
+import { LLMChatMessage, ChatProvider, EmbeddingProvider, EmbeddingResponse, LLMResponse } from "../types";
 
 export interface OllamaProviderConfig {
     /** e.g. "http://localhost:11434" */
@@ -32,7 +32,7 @@ export class OllamaProvider implements ChatProvider, EmbeddingProvider {
         this.baseUrl = normalizeBaseUrl(config.baseUrl);
     }
 
-    async sendChatMessage(messages: ChatMessage[]): Promise<LLMResponse> {
+    async sendChatMessage(messages: LLMChatMessage[]): Promise<LLMResponse> {
         try {
             const response = await requestUrl({
                 url: `${this.baseUrl}/api/chat`,

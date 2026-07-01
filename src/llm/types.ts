@@ -4,7 +4,13 @@
  * needs to know which API it's actually talking to.
  */
 
-export interface ChatMessage {
+/**
+ * A single turn in an LLM conversation. Named `LLMChatMessage` (rather than
+ * `ChatMessage`) to avoid colliding with the persisted, UI-facing
+ * `ChatMessage` type in `settings/types.ts` (`{ content, sender, timestamp }`),
+ * which has a completely different shape.
+ */
+export interface LLMChatMessage {
     role: "user" | "assistant" | "system";
     content: string;
 }
@@ -24,7 +30,7 @@ export interface EmbeddingResponse {
  * construction time, so callers only ever pass the conversation.
  */
 export interface ChatProvider {
-    sendChatMessage(messages: ChatMessage[]): Promise<LLMResponse>;
+    sendChatMessage(messages: LLMChatMessage[]): Promise<LLMResponse>;
 }
 
 /**
