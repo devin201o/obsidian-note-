@@ -1,4 +1,5 @@
 import { App, normalizePath, Plugin } from "obsidian";
+import { buildEmbedText } from "./text-splitter";
 
 /**
  * Options for filtering search results
@@ -18,14 +19,16 @@ export interface SearchOptions {
 export interface StoredVector {
     /** The embedding vector */
     vector: number[];
-    /** Hash of the content to detect changes */
+    /** Hash of the embedded text to detect changes */
     contentHash: string;
-    /** The actual text content of the chunk */
+    /** The actual text content of the chunk (display/citation) */
     content: string;
     /** The file path this chunk belongs to */
     filePath: string;
     /** WikiLink format for LLM reference */
     fileLink: string;
+    /** Heading breadcrumb this chunk lives under; "" if none */
+    heading?: string;
 }
 
 /**
@@ -54,6 +57,8 @@ export interface CachedChunk {
     filePath: string;
     fileLink: string;
     chunkIndex: number;
+    heading: string;
+    embedText: string;
 }
 
 /**
@@ -82,6 +87,8 @@ export class VectorStore {
     private isDirty: boolean = false;
     /** Folders to exclude from search results */
     private excludedFolders: string[] = [];
+    /** Monotonic counter bumped on every mutation, used to invalidate derived indexes (e.g. BM25) */
+    private mutationVersion: number = 0;
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
@@ -138,6 +145,7 @@ export class VectorStore {
                 if (storeData.version === VECTOR_STORE_VERSION && storeData.vectors) {
                     this.vectors = new Map(Object.entries(storeData.vectors));
                     this.fileMtimes = new Map(Object.entries(storeData.fileMtimes ?? {}));
+                    this.mutationVersion++;
                     console.log(`Loaded ${this.vectors.size} vectors from ${VECTOR_STORE_FILE}`);
                 }
                 return;
@@ -225,10 +233,43 @@ export class VectorStore {
         contentHash: string,
         content: string,
         filePath: string,
-        fileLink: string
+        fileLink: string,
+        heading: string = ""
     ): void {
-        this.vectors.set(chunkId, { vector, contentHash, content, filePath, fileLink });
+        this.vectors.set(chunkId, { vector, contentHash, content, filePath, fileLink, heading });
         this.isDirty = true;
+        this.mutationVersion++;
+    }
+
+    /**
+     * Current mutation version. Increments whenever the set of stored chunk
+     * contents changes, so derived indexes (like BM25) know when to rebuild.
+     */
+    getMutationVersion(): number {
+        return this.mutationVersion;
+    }
+
+    /**
+     * Whether a file path is searchable under the given options: not in an
+     * excluded folder and matching any active file/folder/tag filter.
+     */
+    passesFilter(filePath: string, options?: SearchOptions): boolean {
+        if (this.isExcluded(filePath)) {
+            return false;
+        }
+        return this.matchesFilter(filePath, options);
+    }
+
+    /**
+     * Snapshot all stored chunks as lexical documents for BM25 indexing.
+     */
+    getLexicalDocuments(): Array<{ id: string; filePath: string; content: string }> {
+        const docs: Array<{ id: string; filePath: string; content: string }> = [];
+        for (const [chunkId, stored] of this.vectors) {
+            if (!stored.content || !stored.filePath) continue;
+            docs.push({ id: chunkId, filePath: stored.filePath, content: stored.content });
+        }
+        return docs;
     }
 
     /**
@@ -262,18 +303,22 @@ export class VectorStore {
      */
     getCachedChunksForFile(filePath: string): CachedChunk[] {
         const prefix = `${filePath}::`;
+        const noteName = filePath.replace(/\.md$/, "").split("/").pop() ?? filePath;
         const chunks: CachedChunk[] = [];
 
         for (const [chunkId, stored] of this.vectors) {
             if (!chunkId.startsWith(prefix) || !stored.content) continue;
             const chunkIndex = Number(chunkId.slice(prefix.length));
             if (Number.isNaN(chunkIndex)) continue;
+            const heading = stored.heading ?? "";
             chunks.push({
                 id: chunkId,
                 content: stored.content,
                 filePath,
                 fileLink: stored.fileLink ?? "",
-                chunkIndex
+                chunkIndex,
+                heading,
+                embedText: buildEmbedText(noteName, heading, stored.content)
             });
         }
 
@@ -470,6 +515,7 @@ export class VectorStore {
 
         if (deletedCount > 0) {
             this.isDirty = true;
+            this.mutationVersion++;
         }
 
         return deletedCount;
@@ -484,6 +530,7 @@ export class VectorStore {
         }
         if (chunkIds.length > 0) {
             this.isDirty = true;
+            this.mutationVersion++;
         }
     }
 
@@ -517,6 +564,7 @@ export class VectorStore {
         this.vectors.clear();
         this.fileMtimes.clear();
         this.isDirty = true;
+        this.mutationVersion++;
         await this.save();
         console.log("Vector store cleared and saved.");
     }
@@ -564,6 +612,7 @@ export class VectorStore {
 
         if (deletedCount > 0) {
             this.isDirty = true;
+            this.mutationVersion++;
         }
 
         return deletedCount;

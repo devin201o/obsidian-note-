@@ -46,8 +46,9 @@ export default class HelloWorldPlugin extends Plugin {
 		
 		// Initialize the chunk manager with privacy manager
 		this.chunkManager = new ChunkManager(this.app, this.privacyManager, {
-			chunkSize: 1000,
-			chunkOverlap: 200
+			chunkSize: this.settings.chunkSize,
+			chunkOverlap: this.settings.chunkOverlap,
+			strategy: this.settings.chunkingStrategy
 		});
 		this.chunkManager.setExcludedFolders(this.settings.excludedFolders);
 		
@@ -69,6 +70,7 @@ export default class HelloWorldPlugin extends Plugin {
 			{ batchSize: 20, batchDelayMs: 100 }
 		);
 		this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
+		this.embeddingManager.setHybridConfig(this.settings.hybridStrategy, this.settings.vectorWeight);
 		
 		// Initialize the RAG engine
 		this.ragEngine = new RAGEngine(this.embeddingManager);
@@ -476,6 +478,7 @@ export default class HelloWorldPlugin extends Plugin {
 		// Update embedding manager and RAG engine with new API key if it changes
 		if (this.embeddingManager) {
 			this.embeddingManager.setApiKey(this.settings.openRouterApiKey);
+			this.embeddingManager.setHybridConfig(this.settings.hybridStrategy, this.settings.vectorWeight);
 		}
 		if (this.ragEngine) {
 			this.ragEngine.setApiKey(this.settings.openRouterApiKey);
