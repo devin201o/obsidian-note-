@@ -271,6 +271,13 @@ If your plugin does not need CSS, delete this file.
     border: none;
 }
 
+/* Settings section descriptions */
+.settings-section-desc {
+    margin: -4px 0 12px 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
 /* Vault Indexer Settings Styles */
 .index-status-container {
     margin-bottom: 20px;

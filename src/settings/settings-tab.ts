@@ -2,6 +2,16 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import MyPlugin from "../main";
 import { IndexedFilesModal } from "./indexed-files-modal";
 
+/**
+ * Render a section heading with a one-line, plain-language description
+ * underneath it, so people who aren't familiar with RAG/embeddings jargon
+ * still know what a section is for at a glance.
+ */
+function addSectionHeading(containerEl: HTMLElement, title: string, description: string): void {
+	containerEl.createEl("h3", { text: title });
+	containerEl.createEl("p", { text: description, cls: "settings-section-desc" });
+}
+
 export class SampleSettingTab extends PluginSettingTab {
 	plugin: MyPlugin;
 	private fileCountEl: HTMLElement | null = null;
@@ -18,7 +28,11 @@ export class SampleSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		// ===== Vault Indexer Section =====
-		containerEl.createEl("h3", { text: "Vault Indexer" });
+		addSectionHeading(
+			containerEl,
+			"Vault indexer",
+			"Controls which files get scanned and how the plugin reacts as you edit your vault."
+		);
 
 		// Index status display
 		const indexStatusContainer = containerEl.createDiv({ cls: "index-status-container" });
@@ -88,7 +102,11 @@ export class SampleSettingTab extends PluginSettingTab {
 				}));
 
 		// ===== Folder Exclusion Section =====
-		containerEl.createEl("h3", { text: "Folder Exclusion" });
+		addSectionHeading(
+			containerEl,
+			"Folder exclusion",
+			"Keep specific folders out of search and indexing entirely."
+		);
 
 		new Setting(containerEl)
 			.setName('Excluded folders')
@@ -110,7 +128,11 @@ export class SampleSettingTab extends PluginSettingTab {
 			});
 
 		// ===== Privacy & Redaction Section =====
-		containerEl.createEl("h3", { text: "Privacy & Redaction" });
+		addSectionHeading(
+			containerEl,
+			"Privacy & redaction",
+			"Automatically strip sensitive data like API keys and emails before anything is indexed."
+		);
 
 		new Setting(containerEl)
 			.setName('Enable redaction')
@@ -139,7 +161,11 @@ export class SampleSettingTab extends PluginSettingTab {
 			});
 
 		// ===== Chunking Section =====
-		containerEl.createEl("h3", { text: "Chunking" });
+		addSectionHeading(
+			containerEl,
+			"Chunking",
+			"Controls how notes are split into pieces before being turned into embeddings. Most people can leave these at the defaults."
+		);
 
 		new Setting(containerEl)
 			.setName('Chunking strategy')
@@ -183,7 +209,11 @@ export class SampleSettingTab extends PluginSettingTab {
 				}));
 
 		// ===== Search & Retrieval Section =====
-		containerEl.createEl("h3", { text: "Search & Retrieval" });
+		addSectionHeading(
+			containerEl,
+			"Search & retrieval",
+			"Fine-tunes how the plugin finds and ranks the most relevant notes for your question."
+		);
 
 		new Setting(containerEl)
 			.setName('Hybrid fusion method')
@@ -268,7 +298,11 @@ export class SampleSettingTab extends PluginSettingTab {
 				}));
 
 		// ===== Query Enhancement Section =====
-		containerEl.createEl("h3", { text: "Query Enhancement" });
+		addSectionHeading(
+			containerEl,
+			"Query enhancement",
+			"Optional extra AI steps that can improve answer quality at the cost of a bit more time and tokens per message."
+		);
 
 		new Setting(containerEl)
 			.setName('Conversation-aware query rewriting')
