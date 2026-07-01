@@ -1,5 +1,5 @@
 import {App, debounce, Modal, Notice, Plugin, TAbstractFile, TFile} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab, UserGuideModal} from "./settings";
 import { ChatbotView, VIEW_TYPE_CHATBOT } from "./views/views";
 import { VaultIndexer } from "./indexer";
 import { ChunkManager } from "./indexer/chunk-manager";
@@ -198,6 +198,15 @@ export default class HelloWorldPlugin extends Plugin {
 			name: 'Test Search',
 			callback: async () => {
 				await this.testSearch();
+			}
+		});
+
+		// Add command to open the plain-language user guide
+		this.addCommand({
+			id: 'open-user-guide',
+			name: 'Open User Guide',
+			callback: () => {
+				new UserGuideModal(this.app).open();
 			}
 		});
 

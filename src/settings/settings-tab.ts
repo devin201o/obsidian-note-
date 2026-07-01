@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import MyPlugin from "../main";
 import { IndexedFilesModal } from "./indexed-files-modal";
+import { UserGuideModal } from "./user-guide-modal";
 import { CHAT_PROVIDER_LABELS, EMBEDDING_PROVIDER_LABELS } from "../llm/factory";
 import type { ChatProviderId, EmbeddingProviderId } from "../llm/types";
 
@@ -28,6 +29,13 @@ export class SampleSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 
 		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName('New to Obsidian note+?')
+			.setDesc('Read a plain-language walkthrough of what this plugin does, how to set it up, and what the jargon below means.')
+			.addButton(button => button
+				.setButtonText('Open user guide')
+				.onClick(() => new UserGuideModal(this.app).open()));
 
 		// ===== AI Provider Section =====
 		addSectionHeading(
