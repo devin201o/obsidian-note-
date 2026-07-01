@@ -45,11 +45,25 @@ export interface SearchResult {
 }
 
 /**
+ * A chunk reconstructed from cached vector store content, without re-reading
+ * or re-splitting the source file.
+ */
+export interface CachedChunk {
+    id: string;
+    content: string;
+    filePath: string;
+    fileLink: string;
+    chunkIndex: number;
+}
+
+/**
  * Data structure for the vector store JSON file
  */
 export interface VectorStoreData {
     version: number;
     vectors: Record<string, StoredVector>;
+    /** Last known mtime (ms) per file path at the time it was chunked, used to skip unchanged files on startup */
+    fileMtimes?: Record<string, number>;
 }
 
 const VECTOR_STORE_VERSION = 1;
@@ -63,6 +77,8 @@ export class VectorStore {
     private plugin: Plugin;
     private app: App;
     private vectors: Map<string, StoredVector> = new Map();
+    /** File path -> mtime (ms) recorded when that file was last chunked */
+    private fileMtimes: Map<string, number> = new Map();
     private isDirty: boolean = false;
     /** Folders to exclude from search results */
     private excludedFolders: string[] = [];
@@ -121,6 +137,7 @@ export class VectorStore {
                 const storeData = JSON.parse(raw) as VectorStoreData;
                 if (storeData.version === VECTOR_STORE_VERSION && storeData.vectors) {
                     this.vectors = new Map(Object.entries(storeData.vectors));
+                    this.fileMtimes = new Map(Object.entries(storeData.fileMtimes ?? {}));
                     console.log(`Loaded ${this.vectors.size} vectors from ${VECTOR_STORE_FILE}`);
                 }
                 return;
@@ -171,7 +188,8 @@ export class VectorStore {
         try {
             const storeData: VectorStoreData = {
                 version: VECTOR_STORE_VERSION,
-                vectors: Object.fromEntries(this.vectors)
+                vectors: Object.fromEntries(this.vectors),
+                fileMtimes: Object.fromEntries(this.fileMtimes)
             };
 
             await this.app.vault.adapter.write(this.getVectorFilePath(), JSON.stringify(storeData));
@@ -211,6 +229,56 @@ export class VectorStore {
     ): void {
         this.vectors.set(chunkId, { vector, contentHash, content, filePath, fileLink });
         this.isDirty = true;
+    }
+
+    /**
+     * Get the mtime recorded for a file the last time it was chunked
+     */
+    getStoredMtime(filePath: string): number | undefined {
+        return this.fileMtimes.get(filePath);
+    }
+
+    /**
+     * Record the mtime for a file after it has been chunked
+     */
+    setStoredMtime(filePath: string, mtime: number): void {
+        this.fileMtimes.set(filePath, mtime);
+        this.isDirty = true;
+    }
+
+    /**
+     * Remove the stored mtime for a file (e.g. on delete)
+     */
+    deleteStoredMtime(filePath: string): void {
+        if (this.fileMtimes.delete(filePath)) {
+            this.isDirty = true;
+        }
+    }
+
+    /**
+     * Reconstruct the chunks for a file from cached vector content, without
+     * touching the vault. Used to skip re-reading/re-splitting files whose
+     * mtime hasn't changed since they were last chunked.
+     */
+    getCachedChunksForFile(filePath: string): CachedChunk[] {
+        const prefix = `${filePath}::`;
+        const chunks: CachedChunk[] = [];
+
+        for (const [chunkId, stored] of this.vectors) {
+            if (!chunkId.startsWith(prefix) || !stored.content) continue;
+            const chunkIndex = Number(chunkId.slice(prefix.length));
+            if (Number.isNaN(chunkIndex)) continue;
+            chunks.push({
+                id: chunkId,
+                content: stored.content,
+                filePath,
+                fileLink: stored.fileLink ?? "",
+                chunkIndex
+            });
+        }
+
+        chunks.sort((a, b) => a.chunkIndex - b.chunkIndex);
+        return chunks;
     }
 
     /**
@@ -447,6 +515,7 @@ export class VectorStore {
      */
     async clearAll(): Promise<void> {
         this.vectors.clear();
+        this.fileMtimes.clear();
         this.isDirty = true;
         await this.save();
         console.log("Vector store cleared and saved.");

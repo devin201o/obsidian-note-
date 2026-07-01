@@ -215,6 +215,7 @@ export class EmbeddingManager {
      */
     async deleteFileVectors(filePath: string): Promise<void> {
         const deletedCount = this.vectorStore.deleteVectorsForFile(filePath);
+        this.vectorStore.deleteStoredMtime(filePath);
         if (deletedCount > 0) {
             await this.vectorStore.save();
             console.log(`Deleted ${deletedCount} vectors for ${filePath}`);
@@ -225,9 +226,19 @@ export class EmbeddingManager {
      * Rename vectors when a file is renamed
      */
     async renameFileVectors(oldPath: string, newPath: string): Promise<void> {
+        // Carry over the stored mtime so the renamed file isn't treated as "changed"
+        const storedMtime = this.vectorStore.getStoredMtime(oldPath);
+        if (storedMtime !== undefined) {
+            this.vectorStore.deleteStoredMtime(oldPath);
+            this.vectorStore.setStoredMtime(newPath, storedMtime);
+        }
+
         const oldIds = this.vectorStore.getChunkIdsForFile(oldPath);
         
         if (oldIds.length === 0) {
+            if (storedMtime !== undefined) {
+                await this.vectorStore.save();
+            }
             return;
         }
 

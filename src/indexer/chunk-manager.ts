@@ -86,6 +86,14 @@ export class ChunkManager {
     }
 
     /**
+     * Restore chunks for a file from an external cache (e.g. reconstructed from
+     * stored embeddings) without reading or re-splitting the file's content.
+     */
+    restoreChunksForFile(filePath: string, chunks: Chunk[]): void {
+        this.chunksByFile.set(filePath, chunks);
+    }
+
+    /**
      * Rename file: update filePath and id for all chunks without re-reading content
      */
     renameFile(oldPath: string, newPath: string): void {
