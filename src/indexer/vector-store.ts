@@ -1,4 +1,4 @@
-import { App, Plugin } from "obsidian";
+import { App, normalizePath, Plugin } from "obsidian";
 
 /**
  * Options for filtering search results
@@ -98,18 +98,35 @@ export class VectorStore {
     }
 
     /**
-     * Load vector data from disk
+     * Get the normalized path to the dedicated vector store file.
+     * Stored alongside the plugin (not inside data.json) so that
+     * embeddings don't get re-serialized on every settings/chat save.
+     */
+    private getVectorFilePath(): string {
+        const pluginDir = this.plugin.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
+        return normalizePath(`${pluginDir}/${VECTOR_STORE_FILE}`);
+    }
+
+    /**
+     * Load vector data from disk.
+     * Reads from the dedicated vector store file. If that file doesn't exist yet,
+     * falls back to migrating vectors that may have been stored in data.json
+     * by older versions of this plugin.
      */
     async load(): Promise<void> {
         try {
-            const data = await this.plugin.loadData();
-            if (data?.vectorStore) {
-                const storeData = data.vectorStore as VectorStoreData;
+            const path = this.getVectorFilePath();
+            if (await this.app.vault.adapter.exists(path)) {
+                const raw = await this.app.vault.adapter.read(path);
+                const storeData = JSON.parse(raw) as VectorStoreData;
                 if (storeData.version === VECTOR_STORE_VERSION && storeData.vectors) {
                     this.vectors = new Map(Object.entries(storeData.vectors));
-                    console.log(`Loaded ${this.vectors.size} vectors from storage`);
+                    console.log(`Loaded ${this.vectors.size} vectors from ${VECTOR_STORE_FILE}`);
                 }
+                return;
             }
+
+            await this.migrateLegacyVectors();
         } catch (error) {
             console.error("Failed to load vector store:", error);
             this.vectors = new Map();
@@ -117,7 +134,34 @@ export class VectorStore {
     }
 
     /**
-     * Save vector data to disk
+     * One-time migration for installs where vectors were previously stored
+     * inside data.json (which caused the whole embedding set to be rewritten
+     * on every settings save). Moves them to the dedicated file and strips
+     * the legacy blob out of data.json.
+     */
+    private async migrateLegacyVectors(): Promise<void> {
+        const data = await this.plugin.loadData() as (Record<string, unknown> & { vectorStore?: VectorStoreData }) | null;
+        const legacy = data?.vectorStore;
+
+        if (!legacy || legacy.version !== VECTOR_STORE_VERSION || !legacy.vectors) {
+            return;
+        }
+
+        this.vectors = new Map(Object.entries(legacy.vectors));
+        this.isDirty = true;
+        await this.save();
+        console.log(`Migrated ${this.vectors.size} vectors from data.json to ${VECTOR_STORE_FILE}`);
+
+        // Remove the legacy blob from data.json so it stops being rewritten alongside settings
+        if (data) {
+            const rest = { ...data };
+            delete rest.vectorStore;
+            await this.plugin.saveData(rest);
+        }
+    }
+
+    /**
+     * Save vector data to disk (dedicated file, separate from settings)
      */
     async save(): Promise<void> {
         if (!this.isDirty) {
@@ -125,21 +169,15 @@ export class VectorStore {
         }
 
         try {
-            // Load existing plugin data to preserve other settings
-            const existingData = await this.plugin.loadData() ?? {};
-            
             const storeData: VectorStoreData = {
                 version: VECTOR_STORE_VERSION,
                 vectors: Object.fromEntries(this.vectors)
             };
 
-            await this.plugin.saveData({
-                ...existingData,
-                vectorStore: storeData
-            });
+            await this.app.vault.adapter.write(this.getVectorFilePath(), JSON.stringify(storeData));
 
             this.isDirty = false;
-            console.log(`Saved ${this.vectors.size} vectors to storage`);
+            console.log(`Saved ${this.vectors.size} vectors to ${VECTOR_STORE_FILE}`);
         } catch (error) {
             console.error("Failed to save vector store:", error);
         }
