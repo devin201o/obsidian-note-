@@ -21,6 +21,8 @@ export default class HelloWorldPlugin extends Plugin {
 	private debouncedUpdateFile = debounce(
 		async (file: TFile) => {
 			await this.chunkManager.updateFile(file);
+			// Record the mtime so a future startup scan knows this file is up to date
+			this.vectorStore.setStoredMtime(file.path, file.stat.mtime);
 			console.log(`Rechunked file: ${file.path}`);
 			// Update embeddings for the modified file
 			if (this.settings.openRouterApiKey) {
@@ -74,11 +76,15 @@ export default class HelloWorldPlugin extends Plugin {
 		this.ragEngine.setModel(this.settings.openRouterModel);
 		this.ragEngine.setSettingsGetter(() => this.settings);
 		
-		// Index the vault on startup
-		await this.indexVault();
-		
-		// Process all files for chunking on startup
-		await this.rebuildChunkIndex();
+		// Defer the vault scan and chunk rebuild until Obsidian's workspace layout
+		// is ready, instead of blocking plugin activation on a full vault read.
+		// rebuildChunkIndex() itself is incremental (see incrementalChunkRebuild),
+		// so on every subsequent startup only files that actually changed since
+		// the last run are re-read from disk.
+		this.app.workspace.onLayoutReady(async () => {
+			await this.indexVault();
+			await this.rebuildChunkIndex();
+		});
 
 		// Register vault event listeners for real-time chunk updates
 		this.registerEvent(
@@ -296,15 +302,58 @@ export default class HelloWorldPlugin extends Plugin {
 
 	async rebuildChunkIndex() {
 		const notice = new Notice("Rebuilding chunk index...", 0);
+		const startTime = performance.now();
 		try {
-			const chunkCount = await this.chunkManager.processAllFiles();
+			const { chunkCount, reprocessedCount, totalCount } = await this.incrementalChunkRebuild();
+			const elapsedMs = Math.round(performance.now() - startTime);
 			notice.hide();
-			new Notice(`Created ${chunkCount} chunks from ${this.chunkManager.getFileCount()} files`);
+			new Notice(
+				`Created ${chunkCount} chunks from ${this.chunkManager.getFileCount()} files ` +
+				`(${reprocessedCount}/${totalCount} re-read from disk) in ${elapsedMs}ms`
+			);
+			console.log(
+				`Chunk index rebuild: ${reprocessedCount}/${totalCount} files re-processed, ` +
+				`${chunkCount} total chunks, in ${elapsedMs}ms`
+			);
 		} catch (error) {
 			notice.hide();
 			new Notice("Error rebuilding chunk index");
 			console.error("Chunk index rebuild error:", error);
 		}
+	}
+
+	/**
+	 * Rebuild the chunk index incrementally: a file is only re-read and re-split
+	 * if its mtime differs from the mtime recorded the last time it was chunked.
+	 * Unchanged files have their chunks reconstructed from cached embedding
+	 * content instead, avoiding a full vault read on every startup.
+	 */
+	private async incrementalChunkRebuild(): Promise<{ chunkCount: number; reprocessedCount: number; totalCount: number }> {
+		this.chunkManager.clearAll();
+		const files = this.app.vault.getMarkdownFiles();
+		let reprocessedCount = 0;
+
+		for (const file of files) {
+			const storedMtime = this.vectorStore.getStoredMtime(file.path);
+
+			if (storedMtime === file.stat.mtime) {
+				const cachedChunks = this.vectorStore.getCachedChunksForFile(file.path);
+				if (cachedChunks.length > 0) {
+					this.chunkManager.restoreChunksForFile(file.path, cachedChunks);
+					continue;
+				}
+			}
+
+			await this.chunkManager.processFile(file);
+			this.vectorStore.setStoredMtime(file.path, file.stat.mtime);
+			reprocessedCount++;
+		}
+
+		return {
+			chunkCount: this.chunkManager.getTotalChunkCount(),
+			reprocessedCount,
+			totalCount: files.length
+		};
 	}
 
 	async rebuildEmbeddings() {
