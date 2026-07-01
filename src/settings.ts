@@ -3,6 +3,7 @@ import MyPlugin from "./main";
 import type { IndexedFile } from "./indexer";
 import type { ChunkingStrategy } from "./indexer/text-splitter";
 import type { HybridStrategy } from "./indexer/embedding-manager";
+import type { ChatProviderId, EmbeddingProviderId } from "./llm/types";
 
 export interface ChatMessage {
     content: string;
@@ -12,8 +13,19 @@ export interface ChatMessage {
 
 export interface MyPluginSettings {
     chatHistory: ChatMessage[];
+    /** Which backend answers chat messages. */
+    chatProvider: ChatProviderId;
+    /** Which backend generates embeddings for search. Independent of chatProvider. */
+    embeddingProvider: EmbeddingProviderId;
     openRouterApiKey: string;
     openRouterModel: string;
+    openRouterEmbeddingModel: string;
+    openAIApiKey: string;
+    openAIModel: string;
+    openAIEmbeddingModel: string;
+    ollamaBaseUrl: string;
+    ollamaModel: string;
+    ollamaEmbeddingModel: string;
     indexMarkdownOnly: boolean;
     enableRedaction: boolean;
     customRedactionPatterns: string;
@@ -37,8 +49,17 @@ export interface MyPluginSettings {
 
 export const DEFAULT_SETTINGS: MyPluginSettings = {
     chatHistory: [],
+    chatProvider: 'openrouter',
+    embeddingProvider: 'openrouter',
     openRouterApiKey: '',
     openRouterModel: 'google/gemini-2.5-flash',
+    openRouterEmbeddingModel: 'openai/text-embedding-3-small',
+    openAIApiKey: '',
+    openAIModel: 'gpt-4o-mini',
+    openAIEmbeddingModel: 'text-embedding-3-small',
+    ollamaBaseUrl: 'http://localhost:11434',
+    ollamaModel: 'llama3.1',
+    ollamaEmbeddingModel: 'nomic-embed-text',
     indexMarkdownOnly: true,
     enableRedaction: true,
     customRedactionPatterns: '',
