@@ -505,7 +505,9 @@ If your plugin does not need CSS, delete this file.
     padding: 2px 6px;
     border-radius: 10px;
     font-size: 0.8em;
-    background-color: var(--color-blue-rgb, rgba(59, 130, 246, 0.15));
+    /* --color-*-rgb vars are bare "r, g, b" triplets in Obsidian themes, so
+       they must be wrapped in rgba(), not used directly as the color value. */
+    background-color: rgba(var(--color-blue-rgb, 59, 130, 246), 0.15);
     border: 1px solid var(--color-blue, #3b82f6);
     max-width: 150px;
     flex-shrink: 0;
@@ -513,7 +515,7 @@ If your plugin does not need CSS, delete this file.
 }
 
 .chat-attachment-pill-warning {
-    background-color: var(--color-orange-rgb, rgba(249, 115, 22, 0.15));
+    background-color: rgba(var(--color-orange-rgb, 249, 115, 22), 0.15);
     border-color: var(--color-orange, #f97316);
 }
 
@@ -536,6 +538,7 @@ If your plugin does not need CSS, delete this file.
     width: 14px;
     height: 14px;
     padding: 0;
+    margin: 0;
     background: none;
     border: none;
     border-radius: 50%;
@@ -544,6 +547,7 @@ If your plugin does not need CSS, delete this file.
     flex-shrink: 0;
     color: var(--text-normal);
     font-size: 12px;
+    font-family: inherit;
     line-height: 1;
 }
 
@@ -556,8 +560,10 @@ If your plugin does not need CSS, delete this file.
     display: inline-flex;
     align-items: center;
     padding: 2px 8px;
+    margin: 0;
     border-radius: 10px;
     font-size: 0.8em;
+    font-family: inherit;
     background-color: var(--background-modifier-hover);
     border: 1px solid var(--background-modifier-border);
     cursor: pointer;

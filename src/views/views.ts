@@ -196,9 +196,11 @@ export class ChatbotView extends ItemView {
             await this.renderMessage(botMessage);
             this.scrollToBottom();
 
-            // One-shot: attachments were successfully used for this message,
-            // so clear them rather than resending on every future turn.
-            this.attachedFiles = [];
+            // One-shot: clear only the attachments actually sent with this
+            // message (matched by path), not the whole list — the user may
+            // have attached something new while this request was in flight.
+            const usedPaths = new Set(attachedFilesForRequest.map(f => f.path));
+            this.attachedFiles = this.attachedFiles.filter(f => !usedPaths.has(f.path));
             this.renderAttachmentPills();
         } catch (error) {
             typingIndicator.remove();
@@ -358,19 +360,23 @@ export class ChatbotView extends ItemView {
             if (isLarge) {
                 pill.addClass("chat-attachment-pill-warning");
             }
-            pill.setAttribute(
-                "aria-label",
-                isLarge
-                    ? `~${file.tokenCount.toLocaleString()} tokens — large attachment, this will use more of your model's context and may cost more per message.`
-                    : `~${file.tokenCount.toLocaleString()} tokens`
-            );
+            // Use both title (visual hover tooltip) and aria-label (screen readers).
+            const tooltip = isLarge
+                ? `~${file.tokenCount.toLocaleString()} tokens — large attachment, this will use more of your model's context and may cost more per message.`
+                : `~${file.tokenCount.toLocaleString()} tokens`;
+            pill.setAttribute("title", tooltip);
+            pill.setAttribute("aria-label", tooltip);
 
             const iconEl = pill.createSpan({ cls: "chat-attachment-pill-icon" });
             setIcon(iconEl, "file-text");
             pill.createSpan({ cls: "chat-attachment-pill-text", text: file.displayName });
 
-            const removeBtn = pill.createSpan({ cls: "chat-attachment-pill-remove", text: "×" });
             const index = this.attachedFiles.indexOf(file);
+            const removeBtn = pill.createEl("button", {
+                cls: "chat-attachment-pill-remove",
+                text: "×",
+                attr: { type: "button", "aria-label": `Remove ${file.displayName}` }
+            });
             removeBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
                 this.removeAttachment(index);
@@ -379,12 +385,17 @@ export class ChatbotView extends ItemView {
 
         // Show expand/collapse button if there are hidden pills
         if (totalCount > this.MAX_VISIBLE_PILLS) {
-            const expandBtn = pillsRow.createSpan({ cls: "chat-attachment-expand" });
+            const expandBtn = pillsRow.createEl("button", {
+                cls: "chat-attachment-expand",
+                attr: { type: "button" }
+            });
             if (this.attachmentsExpanded) {
                 expandBtn.textContent = "▲ Less";
+                expandBtn.setAttribute("aria-label", "Show fewer attachments");
             } else {
                 const hiddenCount = totalCount - this.MAX_VISIBLE_PILLS;
                 expandBtn.textContent = `+${hiddenCount} more...`;
+                expandBtn.setAttribute("aria-label", `Show ${hiddenCount} more attachments`);
             }
             expandBtn.addEventListener("click", () => {
                 this.attachmentsExpanded = !this.attachmentsExpanded;
