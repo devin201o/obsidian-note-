@@ -370,7 +370,7 @@ export class EmbeddingManager {
      * @param queryText The text embedded for dense retrieval (may be a HyDE passage)
      * @param limit Maximum number of results to return after fusion
      * @param poolSize Number of candidates to fetch from each retriever before fusing
-     * @param options Optional filters for files, folders, or tags
+     * @param options Optional filters, e.g. files to exclude from results
      * @param lexicalQueryText Text used for BM25 (defaults to queryText); pass the
      *   original keywords when queryText is a hypothetical document
      */

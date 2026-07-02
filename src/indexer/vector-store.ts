@@ -5,12 +5,12 @@ import { buildEmbedText } from "./text-splitter";
  * Options for filtering search results
  */
 export interface SearchOptions {
-    /** Specific file paths to include */
-    files?: string[];
-    /** Folder path prefixes to include */
-    folders?: string[];
-    /** Tags to include (will check file metadata) */
-    tags?: string[];
+    /**
+     * File paths to exclude from retrieval, e.g. files the user has already
+     * attached in full so their content doesn't also get pulled in as
+     * (redundant) retrieved chunks.
+     */
+    excludeFiles?: string[];
 }
 
 /**
@@ -251,7 +251,7 @@ export class VectorStore {
 
     /**
      * Whether a file path is searchable under the given options: not in an
-     * excluded folder and matching any active file/folder/tag filter.
+     * excluded folder and not explicitly excluded (e.g. already attached).
      */
     passesFilter(filePath: string, options?: SearchOptions): boolean {
         if (this.isExcluded(filePath)) {
@@ -358,99 +358,17 @@ export class VectorStore {
      * Check if a file matches the search options filter
      */
     private matchesFilter(filePath: string, options?: SearchOptions): boolean {
-        if (!options) {
+        if (!options?.excludeFiles || options.excludeFiles.length === 0) {
             return true; // No filter, include all
         }
-
-        const hasFileFilter = options.files && options.files.length > 0;
-        const hasFolderFilter = options.folders && options.folders.length > 0;
-        const hasTagFilter = options.tags && options.tags.length > 0;
-
-        // If no filters specified, include all
-        if (!hasFileFilter && !hasFolderFilter && !hasTagFilter) {
-            return true;
-        }
-
-        // Check file filter (exact match)
-        if (hasFileFilter && options.files!.includes(filePath)) {
-            return true;
-        }
-
-        // Check folder filter (recursive - includes all subfolders)
-        if (hasFolderFilter) {
-            for (const folder of options.folders!) {
-                // Normalize folder path: ensure it ends with / for proper prefix matching
-                const normalizedFolder = folder.endsWith("/") ? folder : folder + "/";
-                // Check if file is directly in the folder or in any subfolder
-                if (filePath.startsWith(normalizedFolder) || filePath === folder) {
-                    return true;
-                }
-            }
-        }
-
-        // Check tag filter using MetadataCache (with hierarchy support)
-        if (hasTagFilter) {
-            const file = this.app.vault.getAbstractFileByPath(filePath);
-            if (file) {
-                const cache = this.app.metadataCache.getCache(filePath);
-                const fileTags: string[] = [];
-                
-                // Collect inline tags
-                if (cache?.tags) {
-                    for (const t of cache.tags) {
-                        fileTags.push(t.tag.toLowerCase());
-                    }
-                }
-                
-                // Collect frontmatter tags
-                if (cache?.frontmatter?.tags) {
-                    const fmTags: string[] = Array.isArray(cache.frontmatter.tags) 
-                        ? cache.frontmatter.tags 
-                        : [cache.frontmatter.tags];
-                    for (const t of fmTags) {
-                        if (typeof t === "string") {
-                            const normalized = t.startsWith("#") ? t.toLowerCase() : `#${t.toLowerCase()}`;
-                            fileTags.push(normalized);
-                        }
-                    }
-                }
-                
-                // Also check singular 'tag' field
-                if (cache?.frontmatter?.tag && typeof cache.frontmatter.tag === "string") {
-                    const t = cache.frontmatter.tag;
-                    const normalized = t.startsWith("#") ? t.toLowerCase() : `#${t.toLowerCase()}`;
-                    fileTags.push(normalized);
-                }
-                
-                // Check if any selected tag matches file tags (with hierarchy)
-                for (const selectedTag of options.tags!) {
-                    const normalizedSelected = selectedTag.startsWith("#") 
-                        ? selectedTag.toLowerCase() 
-                        : `#${selectedTag.toLowerCase()}`;
-                    
-                    for (const fileTag of fileTags) {
-                        // Exact match
-                        if (fileTag === normalizedSelected) {
-                            return true;
-                        }
-                        // Hierarchy match: #project matches #project/subtask
-                        // If selected is #project, it should match #project/anything
-                        if (fileTag.startsWith(normalizedSelected + "/")) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        return false;
+        return !options.excludeFiles.includes(filePath);
     }
 
     /**
      * Search for similar vectors using cosine similarity
      * @param queryVector The query embedding vector
      * @param limit Maximum number of results to return
-     * @param options Optional filters for files, folders, or tags
+     * @param options Optional filters, e.g. files to exclude from results
      */
     search(queryVector: number[], limit: number = 5, options?: SearchOptions): SearchResult[] {
         const results: SearchResult[] = [];
