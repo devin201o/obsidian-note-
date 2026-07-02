@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-note+",
 	"name": "Obsidian note+",
-	"version": "1.0.0",
+	"version": "1.0.1-beta.0",
 	"minAppVersion": "0.15.0",
 	"description": "Chat with your notes using a local-first RAG pipeline with hybrid vector and keyword search, plus automatic secret redaction before anything leaves your vault.",
 	"author": "devin201o",

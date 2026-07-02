@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-note+",
-	"version": "1.0.0",
+	"version": "1.0.1-beta.0",
 	"description": "Chat with your notes using a local-first RAG pipeline with hybrid vector and keyword search, plus automatic secret redaction before anything leaves your vault.",
 	"main": "main.js",
 	"type": "module",
