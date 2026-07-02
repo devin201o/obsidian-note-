@@ -19,8 +19,23 @@ interface ContextItem {
     content: string;
 }
 
+/**
+ * A file the user has explicitly attached. Unlike retrieved context, its
+ * full content is guaranteed to reach the model.
+ */
+export interface AttachedFile {
+    /** Vault path, used to exclude this file from retrieval so it isn't duplicated. */
+    path: string;
+    /** Display name shown in the UI and cited to the model. */
+    displayName: string;
+    /** Full file content at the time it was attached. */
+    content: string;
+    /** Rough token estimate, used by the UI to warn about large attachments. */
+    tokenCount: number;
+}
+
 /** Rough token estimate (~4 chars/token) used for context budgeting. */
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
     return Math.ceil(text.length / 4);
 }
 
@@ -56,13 +71,14 @@ export class RAGEngine {
      * Ask a question and get a RAG-augmented response
      * @param userQuery The user's question
      * @param conversationHistory Previous messages for context
-     * @param searchOptions Optional filters for files, folders, or tags
+     * @param attachedFiles Files the user explicitly attached; their full content is
+     *   injected into the prompt and they are excluded from vault-wide retrieval
      * @returns The LLM's response
      */
     async ask(
         userQuery: string,
         conversationHistory: Array<{ role: "user" | "assistant"; content: string }> = [],
-        searchOptions?: SearchOptions
+        attachedFiles: AttachedFile[] = []
     ): Promise<string> {
         if (!this.chatProvider) {
             return "Error: AI provider not configured. Please configure it in Settings → obsidian note+.";
@@ -99,7 +115,13 @@ export class RAGEngine {
 
         // Step 1: Retrieve relevant chunks with hybrid search (vector + BM25 fusion).
         // When reranking, retrieve a wider candidate pool to rerank down from.
+        // Attached files are excluded here since their full content is already
+        // guaranteed to be in the prompt; retrieving them again would waste the
+        // context budget on duplicate content.
         const searchLimit = useReranker ? Math.max(maxChunks, rerankCandidates) : maxChunks;
+        const searchOptions: SearchOptions | undefined = attachedFiles.length > 0
+            ? { excludeFiles: attachedFiles.map(f => f.path) }
+            : undefined;
         const searchResults = await this.embeddingManager.search(
             vectorQuery, 
             searchLimit, 
@@ -122,7 +144,7 @@ export class RAGEngine {
         const contextItems = this.packContext(narrowed, tokenBudget, neighborRadius);
 
         // Step 4: Build the system prompt with context
-        const systemPrompt = this.buildSystemPrompt(contextItems, searchOptions);
+        const systemPrompt = this.buildSystemPrompt(contextItems, attachedFiles);
 
         // Step 3: Build messages array
         const messages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
@@ -252,11 +274,11 @@ export class RAGEngine {
     }
 
     /**
-     * Build the system prompt with retrieved context
+     * Build the system prompt with attached files and retrieved context
      */
     private buildSystemPrompt(
         contextItems: ContextItem[],
-        searchOptions?: SearchOptions
+        attachedFiles: AttachedFile[]
     ): string {
         let basePrompt = `You are an Obsidian assistant. Answer the user's question using the context provided from their notes, which is given as a numbered list of sources.
 
@@ -267,27 +289,23 @@ CRITICAL INSTRUCTIONS:
 4. Prefer information from higher-listed sources when sources conflict, but use your judgment.
 5. Be concise but thorough.`;
 
-        // Add context scope information if filters are applied
-        if (searchOptions) {
-            const scopeParts: string[] = [];
-            if (searchOptions.files && searchOptions.files.length > 0) {
-                scopeParts.push(`files: ${searchOptions.files.map(f => f.split("/").pop()).join(", ")}`);
-            }
-            if (searchOptions.folders && searchOptions.folders.length > 0) {
-                scopeParts.push(`folders: ${searchOptions.folders.join(", ")}`);
-            }
-            if (searchOptions.tags && searchOptions.tags.length > 0) {
-                scopeParts.push(`tags: ${searchOptions.tags.join(", ")}`);
-            }
-            if (scopeParts.length > 0) {
-                basePrompt += `\n\nIMPORTANT: The user has explicitly selected specific context to focus on (${scopeParts.join("; ")}). Prioritize information from these sources.`;
-            }
+        // Attached files: full content, guaranteed to be included (unlike
+        // retrieved context, which is filtered/thresholded).
+        let attachedSection = "";
+        if (attachedFiles.length > 0) {
+            basePrompt += `\n\nIMPORTANT: The user has attached ${attachedFiles.length} file(s) in full below. Treat their content as authoritative and prioritize it when it's relevant to the question.`;
+
+            attachedSection = "\n\n--- ATTACHED FILES (full content, provided by the user) ---\n";
+            attachedFiles.forEach((file, index) => {
+                attachedSection += `\n[Attached ${index + 1}] ${file.displayName}\n${file.content}\n---\n`;
+            });
         }
 
         if (contextItems.length === 0) {
-            return `${basePrompt}
-
-Note: No relevant context was found in the vault for this query. Answer based on your general knowledge, but inform the user that no specific notes were found.`;
+            const note = attachedFiles.length > 0
+                ? "Note: No additional related context was found elsewhere in the vault. Answer using the attached file(s) above."
+                : "Note: No relevant context was found in the vault for this query. Answer based on your general knowledge, but inform the user that no specific notes were found.";
+            return `${basePrompt}${attachedSection}\n\n${note}`;
         }
 
         // Build context section with numbered sources for easier inline citation.
@@ -299,6 +317,6 @@ Note: No relevant context was found in the vault for this query. Answer based on
             contextSection += "---\n";
         });
 
-        return basePrompt + contextSection;
+        return basePrompt + attachedSection + contextSection;
     }
 }
